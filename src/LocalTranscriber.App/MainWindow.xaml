@@ -63,8 +63,17 @@
 
                 <ListBox Grid.Row="1"
                          ItemsSource="{Binding SpeakerPanel.Speakers}"
-                         SelectedItem="{Binding SpeakerPanel.SelectedSpeaker}"
-                         DisplayMemberPath="DisplayName" />
+                         SelectedItem="{Binding SpeakerPanel.SelectedSpeaker}">
+                    <ListBox.ItemTemplate>
+                        <DataTemplate>
+                            <StackPanel Orientation="Horizontal">
+                                <TextBlock Text="{Binding DisplayName}" FontWeight="SemiBold" />
+                                <TextBlock Text="{Binding SampleCount, StringFormat='  samples: {0}'}" Foreground="Gray" />
+                                <TextBlock Text="{Binding LastSeenAt, StringFormat='  last seen: {0:yyyy-MM-dd HH:mm}'}" Foreground="Gray" />
+                            </StackPanel>
+                        </DataTemplate>
+                    </ListBox.ItemTemplate>
+                </ListBox>
 
                 <Grid Grid.Row="2" Margin="0,8,0,0">
                     <Grid.ColumnDefinitions>

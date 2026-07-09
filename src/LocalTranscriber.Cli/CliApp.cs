@@ -19,7 +19,7 @@ public static class CliApp
         root.AddCommand(BuildTailCommand());
         root.AddCommand(BuildReadCommand());
         root.AddCommand(BuildSessionsCommand(configService));
-        root.AddCommand(BuildSpeakersCommand(configService));
+        root.AddCommand(SpeakerCommands.Build(configService));
         root.AddCommand(BuildRenameSpeakerCommand(configService));
         root.AddCommand(BuildForgetSpeakerCommand(configService));
         root.AddCommand(BuildConfigCommand(configService));
@@ -195,28 +195,6 @@ public static class CliApp
             {
                 string ended = s.EndedAt?.ToLocalTime().ToString("yyyy-MM-dd HH:mm:ss") ?? "-";
                 Console.WriteLine($"{s.Id}  {s.StartedAt.ToLocalTime():yyyy-MM-dd HH:mm:ss}  ended: {ended}  [{s.Status}]  {s.OutputTextPath}");
-            }
-        });
-        return cmd;
-    }
-
-    private static Command BuildSpeakersCommand(ConfigService configService)
-    {
-        var cmd = new Command("speakers", "List known speakers.");
-        cmd.SetHandler(async () =>
-        {
-            var store = new SqliteKnownSpeakerStore(OpenDatabase(configService));
-            var speakers = await store.ListAsync();
-            if (speakers.Count == 0)
-            {
-                Console.WriteLine("No known speakers yet.");
-                return;
-            }
-
-            foreach (var s in speakers)
-            {
-                string lastSeen = s.LastSeenAt?.ToLocalTime().ToString("yyyy-MM-dd HH:mm") ?? "never";
-                Console.WriteLine($"{s.DisplayName}  (samples: {s.SampleCount}, last seen: {lastSeen}, id: {s.Id})");
             }
         });
         return cmd;

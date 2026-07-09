@@ -1,5 +1,6 @@
 using LocalTranscriber.Engine;
 using LocalTranscriber.Shared;
+using LocalTranscriber.Speakers;
 using LocalTranscriber.Storage;
 
 namespace LocalTranscriber.Mcp;
@@ -21,11 +22,22 @@ public sealed class TranscriberService
         Engine = new FakeTranscriptionEngine(new SqliteSessionStore(_db), new SqliteTranscriptEventStore(_db));
         SessionStore = new SqliteSessionStore(_db);
         SpeakerStore = new SqliteKnownSpeakerStore(_db);
+        Recognition = new SpeakerRecognitionService(
+            SpeakerStore,
+            new SqliteSpeakerEmbeddingStore(_db),
+            new SpeakerMemoryOptions
+            {
+                MatchThreshold = config.SpeakerMatchThreshold,
+                UncertainThreshold = config.SpeakerUncertainThreshold
+            });
     }
 
     public ITranscriptionEngine Engine { get; }
     public ISessionStore SessionStore { get; }
     public IKnownSpeakerStore SpeakerStore { get; }
+    public ISpeakerRecognitionService Recognition { get; }
+
+    public SpeakerModelConfig SpeakerModels => new() { ModelDir = _configService.Load().SpeakerModelPath };
 
     public TranscriptionSessionOptions? CurrentOptions { get; private set; }
 

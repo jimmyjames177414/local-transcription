@@ -139,6 +139,76 @@ public sealed class LocalTranscriberTools
             : $"Speaker not found: {name}";
     }
 
+    [McpServerTool(Name = "enroll_speaker"), Description("Enroll a speaker from a WAV voice sample inside the transcript folder, so future sessions recognize them.")]
+    public async Task<string> EnrollSpeaker(
+        [Description("Speaker name to enroll.")] string name,
+        [Description("WAV file name or relative path inside the transcript folder.")] string audioFile)
+    {
+        _logger.Log("enroll_speaker", $"{name} <- {audioFile}");
+        if (string.IsNullOrWhiteSpace(name))
+        {
+            return "Speaker name is required.";
+        }
+
+        string? path = _service.ResolveTranscriptPath(audioFile);
+        if (path is null)
+        {
+            return "Access denied: audio path is outside the configured transcript folder.";
+        }
+
+        try
+        {
+            using var embeddings = new LocalTranscriber.Speakers.SherpaOnnxEmbeddingService();
+            var embedding = await embeddings.ExtractEmbeddingAsync(new LocalTranscriber.Speakers.SpeakerEmbeddingRequest
+            {
+                AudioPath = path,
+                Models = _service.SpeakerModels
+            });
+            await _service.Recognition.EnrollAsync(name, embedding, sessionId: null);
+            return $"Enrolled '{name}' from {Path.GetFileName(path)}.";
+        }
+        catch (Exception ex)
+        {
+            return $"Enrollment failed: {ex.Message}";
+        }
+    }
+
+    [McpServerTool(Name = "match_speaker_sample"), Description("Identify the speaker in a WAV sample inside the transcript folder by comparing against known speakers.")]
+    public async Task<string> MatchSpeakerSample(
+        [Description("WAV file name or relative path inside the transcript folder.")] string audioFile)
+    {
+        _logger.Log("match_speaker_sample", audioFile);
+        string? path = _service.ResolveTranscriptPath(audioFile);
+        if (path is null)
+        {
+            return "Access denied: audio path is outside the configured transcript folder.";
+        }
+
+        try
+        {
+            using var embeddings = new LocalTranscriber.Speakers.SherpaOnnxEmbeddingService();
+            var embedding = await embeddings.ExtractEmbeddingAsync(new LocalTranscriber.Speakers.SpeakerEmbeddingRequest
+            {
+                AudioPath = path,
+                Models = _service.SpeakerModels
+            });
+            var match = await _service.Recognition.MatchAsync(embedding);
+            if (match is null)
+            {
+                return "No match among known speakers.";
+            }
+
+            string label = match.Certainty == LocalTranscriber.Speakers.SpeakerMatchCertainty.Confident
+                ? match.DisplayName
+                : $"possibly {match.DisplayName}";
+            return $"{label} (similarity: {match.Similarity:F3})";
+        }
+        catch (Exception ex)
+        {
+            return $"Match failed: {ex.Message}";
+        }
+    }
+
     [McpServerTool(Name = "set_output_folder"), Description("Set the transcript output folder used for new sessions and transcript reads.")]
     public string SetOutputFolder([Description("Folder path for transcripts.")] string path)
     {
