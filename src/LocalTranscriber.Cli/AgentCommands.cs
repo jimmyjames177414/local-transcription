@@ -14,6 +14,7 @@ public static class AgentCommands
         agent.AddCommand(BuildStartFake(configService));
         agent.AddCommand(BuildStart(configService));
         agent.AddCommand(BuildTestOpenAI(configService));
+        agent.AddCommand(BuildTestRealtime(configService));
         agent.AddCommand(BuildStatus(configService));
         agent.AddCommand(BuildSuggestions(configService));
         agent.AddCommand(BuildDismiss(configService));
@@ -255,6 +256,93 @@ public static class AgentCommands
             catch (Exception ex)
             {
                 Console.Error.WriteLine($"OpenAI call failed: {ex.Message}");
+                Environment.ExitCode = 1;
+            }
+        }, transcriptOpt, contextOpt);
+        return cmd;
+    }
+
+    private static Command BuildTestRealtime(ConfigService configService)
+    {
+        var transcriptOpt = new Option<string>("--transcript", "Transcript .jsonl to analyze once.") { IsRequired = true };
+        var contextOpt = new Option<string?>("--context", () => null, "Context folder (default from config).");
+        var cmd = new Command("test-realtime", "One-shot: send the transcript + context over the OpenAI Realtime websocket and print suggestions. Text only, no audio.");
+        cmd.AddOption(transcriptOpt);
+        cmd.AddOption(contextOpt);
+        cmd.SetHandler(async (string transcript, string? context) =>
+        {
+            var config = configService.Load();
+            config.Agent.Provider = "realtime";
+            config.Agent.Realtime.Enabled = true; // explicit test command implies consent
+            var resolution = AgentProviderFactory.Create(config);
+            if (resolution.Provider.Name != "realtime")
+            {
+                Console.Error.WriteLine(resolution.Notice);
+                Environment.ExitCode = 1;
+                return;
+            }
+
+            var events = new List<LocalTranscriber.Shared.TranscriptEvent>();
+            await using (var tailer = new TranscriptEventTailer())
+            {
+                await foreach (var e in tailer.TailAsync(new TranscriptTailOptions
+                {
+                    JsonlPath = transcript,
+                    FromStart = true,
+                    StopAtEndOfFile = true
+                }))
+                {
+                    events.Add(e);
+                }
+            }
+
+            if (events.Count == 0)
+            {
+                Console.Error.WriteLine($"No transcript events found in {transcript}");
+                Environment.ExitCode = 1;
+                return;
+            }
+
+            var contextService = new LocalTranscriber.Context.MarkdownContextPackService();
+            var pack = await contextService.LoadAsync(new LocalTranscriber.Context.ContextPackOptions
+            {
+                ContextFolder = context ?? config.Agent.ContextFolder,
+                MaxTotalCharacters = config.Agent.MaxContextCharacters,
+                RequiredFiles = config.Agent.RequiredContextFiles
+            });
+
+            Console.WriteLine($"Connecting to Realtime model '{config.Agent.Realtime.Model}' (websocket, text only)...");
+            try
+            {
+                var provider = (LocalTranscriber.Agent.OpenAI.OpenAIRealtimeMeetingAgentProvider)resolution.Provider;
+                var result = await provider.AnalyzeAsync(new AgentProviderRequest
+                {
+                    WindowEvents = events.TakeLast(config.Agent.MaxTranscriptEventsPerPrompt).ToArray(),
+                    ContextSummary = pack.CombinedText,
+                    KnownSpeakers = events.Select(e => e.Speaker.DisplayName).Distinct().ToArray()
+                });
+
+                Console.WriteLine($"Connection: {provider.ConnectionState}");
+                if (result.Suggestions.Count == 0)
+                {
+                    Console.WriteLine("(model returned no suggestions)");
+                }
+                foreach (var s in result.Suggestions)
+                {
+                    Console.WriteLine($"[{s.Priority}] {s.Type}: {s.Title}");
+                    Console.WriteLine($"    {s.Message}  (confidence: {s.Confidence:F2})");
+                }
+                if (result.RunningSummaryUpdate is not null)
+                {
+                    Console.WriteLine();
+                    Console.WriteLine($"Summary: {result.RunningSummaryUpdate}");
+                }
+
+                await provider.DisposeAsync();
+            }
+            catch (Exception ex)
+            {
+                Console.Error.WriteLine($"Realtime call failed: {ex.Message}");
                 Environment.ExitCode = 1;
             }
         }, transcriptOpt, contextOpt);

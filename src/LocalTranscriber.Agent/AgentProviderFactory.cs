@@ -41,6 +41,31 @@ public static class AgentProviderFactory
                 }), null);
             }
 
+            case "realtime":
+            {
+                if (!config.Agent.Realtime.Enabled)
+                {
+                    return Fallback("Realtime provider is not enabled (agent.realtime.enabled=false).");
+                }
+
+                if (config.Agent.Realtime.SendAudio)
+                {
+                    return Fallback("agent.realtime.sendAudio=true is not supported: raw audio is never sent to providers.");
+                }
+
+                var (key, reason) = secrets.ResolveOpenAIKey(config.Agent.Realtime.ApiKeyEnvironmentVariable);
+                if (key is null)
+                {
+                    return Fallback($"Realtime provider disabled: {reason}");
+                }
+
+                return new Resolution(new OpenAIRealtimeMeetingAgentProvider(new RealtimeConnectionOptions
+                {
+                    ApiKey = key,
+                    Model = config.Agent.Realtime.Model
+                }), null);
+            }
+
             case "fake":
                 return new Resolution(new FakeMeetingAgentProvider(), null);
 

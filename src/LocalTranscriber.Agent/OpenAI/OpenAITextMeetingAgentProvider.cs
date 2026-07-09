@@ -205,18 +205,56 @@ public static class OpenAIResponseParser
             return new AgentProviderResult(Array.Empty<AgentSuggestion>(), null);
         }
 
+        return ParseContent(content, sessionId, source: "openai");
+    }
+
+    /// <summary>Parses the model's structured JSON payload (shared by text + realtime providers).</summary>
+    public static AgentProviderResult ParseContent(string? content, string? sessionId, string source)
+    {
         if (string.IsNullOrWhiteSpace(content))
         {
             return new AgentProviderResult(Array.Empty<AgentSuggestion>(), null);
         }
+
+        // Models occasionally wrap the JSON in fences or stray characters; carve out the
+        // JSON value. Without strict schema enforcement (realtime), some replies are a
+        // bare suggestions array instead of the wrapper object — accept both.
+        int firstObj = content.IndexOf('{');
+        int firstArr = content.IndexOf('[');
+        int first = (firstObj, firstArr) switch
+        {
+            (-1, -1) => -1,
+            (-1, _) => firstArr,
+            (_, -1) => firstObj,
+            _ => Math.Min(firstObj, firstArr)
+        };
+        char closer = first == firstArr && (firstObj == -1 || firstArr < firstObj) ? ']' : '}';
+        int last = content.LastIndexOf(closer);
+        if (first < 0 || last <= first)
+        {
+            return new AgentProviderResult(Array.Empty<AgentSuggestion>(), null);
+        }
+        content = content[first..(last + 1)];
 
         try
         {
             using var doc = JsonDocument.Parse(content);
             var root = doc.RootElement;
 
+            JsonElement array = default;
+            bool hasArray = root.ValueKind == JsonValueKind.Array;
+            if (hasArray)
+            {
+                array = root;
+            }
+            else if (root.TryGetProperty("suggestions", out var arrayProp) && arrayProp.ValueKind == JsonValueKind.Array)
+            {
+                array = arrayProp;
+                hasArray = true;
+            }
+
             var suggestions = new List<AgentSuggestion>();
-            if (root.TryGetProperty("suggestions", out var array) && array.ValueKind == JsonValueKind.Array)
+            if (hasArray)
             {
                 foreach (var s in array.EnumerateArray())
                 {
@@ -235,12 +273,13 @@ public static class OpenAIResponseParser
                         Priority: s.TryGetProperty("priority", out var p) && Enum.TryParse<AgentSuggestionPriority>(p.GetString(), true, out var priority) ? priority : AgentSuggestionPriority.Low,
                         Title: title,
                         Message: message,
-                        Source: "openai",
-                        Confidence: s.TryGetProperty("confidence", out var c) && c.ValueKind == JsonValueKind.Number ? c.GetDouble() : null));
+                        Source: source,
+                        Confidence: ParseConfidence(s)));
                 }
             }
 
-            string? summary = root.TryGetProperty("runningSummaryUpdate", out var su) && su.ValueKind == JsonValueKind.String
+            string? summary = root.ValueKind == JsonValueKind.Object &&
+                root.TryGetProperty("runningSummaryUpdate", out var su) && su.ValueKind == JsonValueKind.String
                 ? su.GetString()
                 : null;
 
@@ -250,5 +289,28 @@ public static class OpenAIResponseParser
         {
             return new AgentProviderResult(Array.Empty<AgentSuggestion>(), null);
         }
+    }
+
+    /// <summary>Accepts numeric confidence, numeric strings, and loose labels like "Medium".</summary>
+    private static double? ParseConfidence(JsonElement suggestion)
+    {
+        if (!suggestion.TryGetProperty("confidence", out var c))
+        {
+            return null;
+        }
+
+        return c.ValueKind switch
+        {
+            JsonValueKind.Number => c.GetDouble(),
+            JsonValueKind.String when double.TryParse(c.GetString(), out double value) => value,
+            JsonValueKind.String => c.GetString()?.ToLowerInvariant() switch
+            {
+                "high" => 0.85,
+                "medium" => 0.6,
+                "low" => 0.35,
+                _ => null
+            },
+            _ => null
+        };
     }
 }
