@@ -14,12 +14,17 @@ public sealed class TranscriberService
     private readonly ConfigService _configService;
     private readonly SqliteDatabase _db;
 
+    private ITranscriptionEngine _current;
+    private RealTranscriptionEngine? _realEngine;
+    private readonly FakeTranscriptionEngine _fakeEngine;
+
     public TranscriberService(ConfigService configService)
     {
         _configService = configService;
         var config = configService.Load();
         _db = new SqliteDatabase(config.DatabasePath);
-        Engine = new FakeTranscriptionEngine(new SqliteSessionStore(_db), new SqliteTranscriptEventStore(_db));
+        _fakeEngine = new FakeTranscriptionEngine(new SqliteSessionStore(_db), new SqliteTranscriptEventStore(_db));
+        _current = _fakeEngine;
         SessionStore = new SqliteSessionStore(_db);
         SpeakerStore = new SqliteKnownSpeakerStore(_db);
         Recognition = new SpeakerRecognitionService(
@@ -32,7 +37,7 @@ public sealed class TranscriberService
             });
     }
 
-    public ITranscriptionEngine Engine { get; }
+    public ITranscriptionEngine Engine => _current;
     public ISessionStore SessionStore { get; }
     public IKnownSpeakerStore SpeakerStore { get; }
     public ISpeakerRecognitionService Recognition { get; }
@@ -60,7 +65,20 @@ public sealed class TranscriberService
             OutputTextPath = Path.Combine(folder, baseName + ".txt"),
             OutputJsonlPath = Path.Combine(folder, baseName + ".jsonl")
         };
+        _current = _fakeEngine;
         await Engine.StartAsync(options, cancellationToken);
+        CurrentOptions = options;
+        return options;
+    }
+
+    /// <summary>Starts a real (audio + whisper + diarization) session in this MCP process.</summary>
+    public async Task<TranscriptionSessionOptions> StartRealSessionAsync(CancellationToken cancellationToken = default)
+    {
+        var config = _configService.Load();
+        _realEngine ??= EngineFactory.CreateReal(config);
+        var options = EngineFactory.CreateSessionOptions(config, TranscriptFolder);
+        _current = _realEngine;
+        await _current.StartAsync(options, cancellationToken);
         CurrentOptions = options;
         return options;
     }

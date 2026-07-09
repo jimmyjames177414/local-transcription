@@ -13,7 +13,11 @@ public static class CliApp
 
         var root = new RootCommand("LocalTranscriber — local-only transcription. No cloud, no API keys.");
 
-        root.AddCommand(BuildStatusCommand());
+        root.AddCommand(SessionCommands.BuildStatus());
+        root.AddCommand(SessionCommands.BuildStart(configService));
+        root.AddCommand(SessionCommands.BuildIpcCommand("stop", "Stop the running transcription session.", "stop"));
+        root.AddCommand(SessionCommands.BuildIpcCommand("pause", "Pause the running transcription session.", "pause"));
+        root.AddCommand(SessionCommands.BuildIpcCommand("resume", "Resume the paused transcription session.", "resume"));
         root.AddCommand(BuildFakeSessionCommand(configService));
         root.AddCommand(BuildStartFakeCommand(configService));
         root.AddCommand(BuildTailCommand());
@@ -31,18 +35,6 @@ public static class CliApp
 
     private static SqliteDatabase OpenDatabase(ConfigService configService)
         => new(configService.Load().DatabasePath);
-
-    private static Command BuildStatusCommand()
-    {
-        var cmd = new Command("status", "Show transcription status.");
-        cmd.SetHandler(() =>
-        {
-            // Cross-process status arrives with IPC in Phase 12. For now: no in-process session.
-            Console.WriteLine("LocalTranscriber status: idle (no session in this process).");
-            Console.WriteLine("Note: cross-process session status arrives in a later phase.");
-        });
-        return cmd;
-    }
 
     private static Command BuildFakeSessionCommand(ConfigService configService)
     {

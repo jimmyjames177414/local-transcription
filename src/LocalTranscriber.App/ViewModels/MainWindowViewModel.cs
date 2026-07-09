@@ -2,6 +2,8 @@ using System.IO;
 using System.Text;
 using LocalTranscriber.App.Mvvm;
 using LocalTranscriber.Engine;
+using LocalTranscriber.Engine.Ipc;
+using LocalTranscriber.Shared;
 using LocalTranscriber.Storage;
 
 namespace LocalTranscriber.App.ViewModels;
@@ -9,6 +11,8 @@ namespace LocalTranscriber.App.ViewModels;
 public sealed class MainWindowViewModel : ObservableObject
 {
     private readonly ITranscriptionEngine _engine;
+    private readonly AppConfig _config;
+    private readonly EngineIpcServer? _ipcServer;
     private readonly SynchronizationContext? _uiContext;
     private readonly StringBuilder _preview = new();
     private CancellationTokenSource? _streamCts;
@@ -22,16 +26,17 @@ public sealed class MainWindowViewModel : ObservableObject
 
     public MainWindowViewModel(ITranscriptionEngine? engine = null, ConfigService? configService = null)
     {
-        var config = (configService ?? new ConfigService()).Load();
+        _config = (configService ?? new ConfigService()).Load();
         if (engine is null)
         {
-            var db = new SqliteDatabase(config.DatabasePath);
-            engine = new FakeTranscriptionEngine(new SqliteSessionStore(db), new SqliteTranscriptEventStore(db));
+            engine = EngineFactory.CreateReal(_config);
+            _ipcServer = new EngineIpcServer(engine);
+            _ipcServer.Start();
         }
 
         _engine = engine;
         _uiContext = SynchronizationContext.Current;
-        _outputFolder = config.TranscriptFolder;
+        _outputFolder = _config.TranscriptFolder;
 
         StartCommand = new AsyncRelayCommand(StartAsync, () => _state is TranscriptionSessionState.NotStarted or TranscriptionSessionState.Stopped or TranscriptionSessionState.Faulted);
         StopCommand = new AsyncRelayCommand(StopAsync, () => _state is TranscriptionSessionState.Recording or TranscriptionSessionState.Paused);
@@ -102,14 +107,7 @@ public sealed class MainWindowViewModel : ObservableObject
         {
             ErrorText = "";
             string folder = string.IsNullOrWhiteSpace(OutputFolder) ? "output/transcripts" : OutputFolder;
-            Directory.CreateDirectory(folder);
-            string baseName = $"session-{DateTime.Now:yyyyMMdd-HHmmss}";
-
-            var options = new TranscriptionSessionOptions
-            {
-                OutputTextPath = Path.Combine(folder, baseName + ".txt"),
-                OutputJsonlPath = Path.Combine(folder, baseName + ".jsonl")
-            };
+            var options = EngineFactory.CreateSessionOptions(_config, folder);
 
             await _engine.StartAsync(options);
             SessionId = options.SessionId;
@@ -199,5 +197,9 @@ public sealed class MainWindowViewModel : ObservableObject
     {
         _streamCts?.Cancel();
         await _engine.StopAsync();
+        if (_ipcServer is not null)
+        {
+            await _ipcServer.DisposeAsync();
+        }
     }
 }

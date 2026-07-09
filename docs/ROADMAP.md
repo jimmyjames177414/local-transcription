@@ -13,6 +13,6 @@
 | 9 | whisper.cpp transcription | done |
 | 10 | sherpa-onnx diarization | done |
 | 11 | Speaker memory | done |
-| 12 | End-to-end pipeline | pending |
+| 12 | End-to-end pipeline | done |
 | 13 | Packaging | pending |
 | 14 | Hardening, testing, docs | pending |

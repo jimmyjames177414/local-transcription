@@ -31,12 +31,27 @@ public sealed class LocalTranscriberTools
         return JsonSerializer.Serialize(status, Pretty);
     }
 
-    [McpServerTool(Name = "start_fake_transcription"), Description("Start a fake transcription session that writes .txt/.jsonl into the configured transcript folder. Real audio arrives in a later phase.")]
+    [McpServerTool(Name = "start_fake_transcription"), Description("Start a FAKE transcription session (synthetic lines, no audio) that writes .txt/.jsonl into the configured transcript folder. Useful for testing.")]
     public async Task<string> StartFakeTranscription()
     {
         _logger.Log("start_fake_transcription");
         var options = await _service.StartFakeSessionAsync();
         return $"Started fake session {options.SessionId}. Writing to {options.OutputTextPath}";
+    }
+
+    [McpServerTool(Name = "start_transcription"), Description("Start a REAL local transcription session: captures mic/system audio, transcribes offline with whisper, labels speakers. Requires models and audio devices.")]
+    public async Task<string> StartTranscription()
+    {
+        _logger.Log("start_transcription");
+        try
+        {
+            var options = await _service.StartRealSessionAsync();
+            return $"Started real session {options.SessionId} (mic: {options.EnableMicrophone}, system: {options.EnableSystemAudio}). Writing to {options.OutputTextPath}";
+        }
+        catch (Exception ex)
+        {
+            return $"Failed to start: {ex.Message}";
+        }
     }
 
     [McpServerTool(Name = "stop_transcription"), Description("Stop the current transcription session.")]
