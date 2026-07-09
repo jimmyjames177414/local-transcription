@@ -4,7 +4,7 @@ public sealed class AppConfig
 {
     public string TranscriptFolder { get; set; } = "output/transcripts";
     public string DatabasePath { get; set; } = "output/localtranscriber.sqlite";
-    public string WhisperModelPath { get; set; } = "models/whisper/model.bin";
+    public string WhisperModelPath { get; set; } = "models/whisper/ggml-base.en.bin";
     public string SpeakerModelPath { get; set; } = "models/speaker";
     public bool EnableMicCapture { get; set; } = true;
     public bool EnableSystemCapture { get; set; } = true;

@@ -24,6 +24,7 @@ public static class CliApp
         root.AddCommand(BuildForgetSpeakerCommand(configService));
         root.AddCommand(BuildConfigCommand(configService));
         root.AddCommand(AudioCommands.Build());
+        root.AddCommand(TranscribeCommand.Build(configService));
 
         return root;
     }

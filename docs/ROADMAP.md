@@ -10,7 +10,7 @@
 | 6 | SQLite storage | done |
 | 7 | MCP server | done (fake engine) |
 | 8 | Audio capture (NAudio/WASAPI) | done |
-| 9 | whisper.cpp transcription | pending |
+| 9 | whisper.cpp transcription | done |
 | 10 | sherpa-onnx diarization | pending |
 | 11 | Speaker memory | pending |
 | 12 | End-to-end pipeline | pending |
