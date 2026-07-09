@@ -2,11 +2,11 @@
 
 | Phase | Content | Status |
 |---|---|---|
-| 1 | Repo skeleton | in progress |
-| 2 | Transcript writers (.txt / .jsonl) | in progress |
-| 3 | Fake transcription engine | in progress |
-| 4 | CLI | in progress |
-| 5 | WPF UI | pending |
+| 1 | Repo skeleton | done |
+| 2 | Transcript writers (.txt / .jsonl) | done |
+| 3 | Fake transcription engine | done |
+| 4 | CLI | done |
+| 5 | WPF UI | done (fake engine) |
 | 6 | SQLite storage | pending |
 | 7 | MCP server | pending |
 | 8 | Audio capture (NAudio/WASAPI) | pending |
