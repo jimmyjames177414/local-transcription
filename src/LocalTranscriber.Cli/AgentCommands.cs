@@ -12,6 +12,8 @@ public static class AgentCommands
         var agent = new Command("agent", "Live meeting AI sidecar (optional; offline fake provider by default).");
         agent.AddCommand(BuildTailEvents());
         agent.AddCommand(BuildStartFake(configService));
+        agent.AddCommand(BuildStart(configService));
+        agent.AddCommand(BuildTestOpenAI(configService));
         agent.AddCommand(BuildStatus(configService));
         agent.AddCommand(BuildSuggestions(configService));
         agent.AddCommand(BuildDismiss(configService));
@@ -114,6 +116,147 @@ public static class AgentCommands
             await agent.StopAsync();
             var status = await agent.GetStatusAsync();
             Console.WriteLine($"Agent stopped. Events seen: {status.EventsSeen}, suggestions: {status.SuggestionsEmitted}.");
+        }, transcriptOpt, contextOpt);
+        return cmd;
+    }
+
+    private static Command BuildStart(ConfigService configService)
+    {
+        var transcriptOpt = new Option<string>("--transcript", "Transcript .jsonl to watch.") { IsRequired = true };
+        var contextOpt = new Option<string?>("--context", () => null, "Context folder (default from config).");
+        var cmd = new Command("start", "Run the meeting agent with the CONFIGURED provider (agent.provider). Blocks until Ctrl+C.");
+        cmd.AddOption(transcriptOpt);
+        cmd.AddOption(contextOpt);
+        cmd.SetHandler(async (string transcript, string? context) =>
+        {
+            var config = configService.Load();
+            var resolution = AgentProviderFactory.Create(config);
+            if (resolution.Notice is not null)
+            {
+                Console.WriteLine(resolution.Notice);
+            }
+
+            var sink = new CompositeAgentSuggestionSink(config.Agent.AgentOutputFolder, Store(configService));
+            await using var agent = new MeetingAgent(resolution.Provider, sink: sink);
+
+            await agent.StartAsync(new MeetingAgentOptions
+            {
+                TranscriptJsonlPath = transcript,
+                ContextFolder = context ?? config.Agent.ContextFolder,
+                AgentOutputFolder = config.Agent.AgentOutputFolder,
+                Mode = Enum.TryParse<AgentMode>(config.Agent.Mode, out var mode) && mode != AgentMode.Off ? mode : AgentMode.SilentObserver,
+                RollingWindowMinutes = config.Agent.RollingWindowMinutes,
+                SuggestionIntervalSeconds = Math.Max(2, config.Agent.SuggestionIntervalSeconds),
+                MaxTranscriptEventsPerPrompt = config.Agent.MaxTranscriptEventsPerPrompt,
+                MaxContextCharacters = config.Agent.MaxContextCharacters,
+                RequiredContextFiles = config.Agent.RequiredContextFiles
+            });
+
+            Console.WriteLine($"Agent running (provider: {resolution.Provider.Name}) on {transcript}. Ctrl+C to stop.");
+
+            using var stop = new CancellationTokenSource();
+            Console.CancelKeyPress += (_, e) =>
+            {
+                e.Cancel = true;
+                stop.Cancel();
+            };
+
+            try
+            {
+                await foreach (var s in agent.StreamSuggestionsAsync(stop.Token))
+                {
+                    Console.WriteLine($"[{s.Priority}] {s.Type}: {s.Title} — {s.Message}");
+                }
+            }
+            catch (OperationCanceledException)
+            {
+            }
+
+            await agent.StopAsync();
+        }, transcriptOpt, contextOpt);
+        return cmd;
+    }
+
+    private static Command BuildTestOpenAI(ConfigService configService)
+    {
+        var transcriptOpt = new Option<string>("--transcript", "Transcript .jsonl to analyze once.") { IsRequired = true };
+        var contextOpt = new Option<string?>("--context", () => null, "Context folder (default from config).");
+        var cmd = new Command("test-openai", "One-shot: send the transcript + context to the OpenAI text provider and print suggestions.");
+        cmd.AddOption(transcriptOpt);
+        cmd.AddOption(contextOpt);
+        cmd.SetHandler(async (string transcript, string? context) =>
+        {
+            var config = configService.Load();
+            config.Agent.Provider = "openai";
+            config.Agent.OpenAI.Enabled = true; // explicit test command implies consent
+            var resolution = AgentProviderFactory.Create(config);
+            if (resolution.Provider.Name != "openai")
+            {
+                Console.Error.WriteLine(resolution.Notice);
+                Environment.ExitCode = 1;
+                return;
+            }
+
+            // Read the whole transcript once.
+            var events = new List<LocalTranscriber.Shared.TranscriptEvent>();
+            await using (var tailer = new TranscriptEventTailer())
+            {
+                await foreach (var e in tailer.TailAsync(new TranscriptTailOptions
+                {
+                    JsonlPath = transcript,
+                    FromStart = true,
+                    StopAtEndOfFile = true
+                }))
+                {
+                    events.Add(e);
+                }
+            }
+
+            if (events.Count == 0)
+            {
+                Console.Error.WriteLine($"No transcript events found in {transcript}");
+                Environment.ExitCode = 1;
+                return;
+            }
+
+            var contextService = new LocalTranscriber.Context.MarkdownContextPackService();
+            var pack = await contextService.LoadAsync(new LocalTranscriber.Context.ContextPackOptions
+            {
+                ContextFolder = context ?? config.Agent.ContextFolder,
+                MaxTotalCharacters = config.Agent.MaxContextCharacters,
+                RequiredFiles = config.Agent.RequiredContextFiles
+            });
+
+            Console.WriteLine($"Sending {events.Count} transcript events + {pack.Documents.Count} context docs to model '{config.Agent.OpenAI.Model}'...");
+            try
+            {
+                var result = await resolution.Provider.AnalyzeAsync(new AgentProviderRequest
+                {
+                    WindowEvents = events.TakeLast(config.Agent.MaxTranscriptEventsPerPrompt).ToArray(),
+                    ContextSummary = pack.CombinedText,
+                    KnownSpeakers = events.Select(e => e.Speaker.DisplayName).Distinct().ToArray()
+                });
+
+                if (result.Suggestions.Count == 0)
+                {
+                    Console.WriteLine("(model returned no suggestions)");
+                }
+                foreach (var s in result.Suggestions)
+                {
+                    Console.WriteLine($"[{s.Priority}] {s.Type}: {s.Title}");
+                    Console.WriteLine($"    {s.Message}  (confidence: {s.Confidence:F2})");
+                }
+                if (result.RunningSummaryUpdate is not null)
+                {
+                    Console.WriteLine();
+                    Console.WriteLine($"Summary: {result.RunningSummaryUpdate}");
+                }
+            }
+            catch (Exception ex)
+            {
+                Console.Error.WriteLine($"OpenAI call failed: {ex.Message}");
+                Environment.ExitCode = 1;
+            }
         }, transcriptOpt, contextOpt);
         return cmd;
     }

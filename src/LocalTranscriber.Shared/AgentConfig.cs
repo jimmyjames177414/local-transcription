@@ -26,7 +26,7 @@ public sealed class OpenAIAgentConfig
 {
     public bool Enabled { get; set; }
     public string ApiKeyEnvironmentVariable { get; set; } = "OPENAI_API_KEY";
-    public string Model { get; set; } = "gpt-4o-mini";
+    public string Model { get; set; } = "gpt-5.4-mini";
     public double Temperature { get; set; } = 0.2;
     public int MaxOutputTokens { get; set; } = 700;
 }
@@ -35,7 +35,7 @@ public sealed class RealtimeAgentConfig
 {
     public bool Enabled { get; set; }
     public string ApiKeyEnvironmentVariable { get; set; } = "OPENAI_API_KEY";
-    public string Model { get; set; } = "gpt-realtime-mini";
+    public string Model { get; set; } = "gpt-realtime-2.1-mini";
     public string Transport { get; set; } = "websocket";
     public bool VoiceOutputEnabled { get; set; }
 

@@ -48,7 +48,7 @@ public sealed class AgentPanelViewModel : ObservableObject
     public ObservableCollection<AgentSuggestionItem> Suggestions { get; } = new();
 
     public string[] Modes { get; } = { "Off", "SilentObserver", "PrivateCoach" };
-    public string[] Providers { get; } = { "fake" };
+    public string[] Providers { get; } = { "fake", "openai" };
 
     public AsyncRelayCommand StartCommand { get; }
     public AsyncRelayCommand StopCommand { get; }
@@ -165,7 +165,12 @@ public sealed class AgentPanelViewModel : ObservableObject
             var appConfig = _configService.Load();
             var db = new SqliteDatabase(appConfig.DatabasePath);
             var sink = new CompositeAgentSuggestionSink(OutputFolder, new SqliteAgentSuggestionStore(db));
-            _agent = new MeetingAgent(new FakeMeetingAgentProvider(), sink: sink);
+            var resolution = AgentProviderFactory.Create(appConfig);
+            if (resolution.Notice is not null)
+            {
+                StatusText = resolution.Notice;
+            }
+            _agent = new MeetingAgent(resolution.Provider, sink: sink);
 
             await _agent.StartAsync(new MeetingAgentOptions
             {
