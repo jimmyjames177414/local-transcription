@@ -1,4 +1,6 @@
+using System.Collections.ObjectModel;
 using LocalTranscriber.App.Mvvm;
+using LocalTranscriber.Audio;
 using LocalTranscriber.Shared;
 using LocalTranscriber.Storage;
 
@@ -15,9 +17,38 @@ public sealed class SettingsViewModel : ObservableObject
         _configService = configService ?? new ConfigService();
         _config = _configService.Load();
         SaveCommand = new RelayCommand(Save);
+        RefreshDevicesCommand = new RelayCommand(RefreshDevices);
     }
 
     public RelayCommand SaveCommand { get; }
+    public RelayCommand RefreshDevicesCommand { get; }
+
+    public ObservableCollection<string> AudioDevices { get; } = new();
+
+    private void RefreshDevices()
+    {
+        AudioDevices.Clear();
+        try
+        {
+            var service = new AudioDeviceService();
+            foreach (var d in service.ListInputDevices())
+            {
+                AudioDevices.Add($"[mic]{(d.IsDefault ? " (default)" : "")} {d.Name}");
+            }
+            foreach (var d in service.ListOutputDevices())
+            {
+                AudioDevices.Add($"[system]{(d.IsDefault ? " (default)" : "")} {d.Name}");
+            }
+            if (AudioDevices.Count == 0)
+            {
+                AudioDevices.Add("No audio devices found.");
+            }
+        }
+        catch (Exception ex)
+        {
+            AudioDevices.Add($"Device enumeration failed: {ex.Message}");
+        }
+    }
 
     public string TranscriptFolder
     {

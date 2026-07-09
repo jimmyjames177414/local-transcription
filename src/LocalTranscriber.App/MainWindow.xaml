@@ -113,6 +113,13 @@
                         <Button Content="Save settings" Padding="14,4" Command="{Binding Settings.SaveCommand}" />
                         <TextBlock Text="{Binding Settings.SaveStatus}" Foreground="Gray" Margin="12,0,0,0" VerticalAlignment="Center" />
                     </StackPanel>
+
+                    <Separator Margin="0,14,0,10" />
+                    <StackPanel Orientation="Horizontal" Margin="0,0,0,6">
+                        <TextBlock Text="Audio devices" FontWeight="SemiBold" VerticalAlignment="Center" />
+                        <Button Content="Refresh audio devices" Padding="12,2" Margin="12,0,0,0" Command="{Binding Settings.RefreshDevicesCommand}" />
+                    </StackPanel>
+                    <ListBox ItemsSource="{Binding Settings.AudioDevices}" MinHeight="60" MaxHeight="160" />
                 </StackPanel>
             </ScrollViewer>
         </TabItem>

@@ -23,6 +23,7 @@ public static class CliApp
         root.AddCommand(BuildRenameSpeakerCommand(configService));
         root.AddCommand(BuildForgetSpeakerCommand(configService));
         root.AddCommand(BuildConfigCommand(configService));
+        root.AddCommand(AudioCommands.Build());
 
         return root;
     }
