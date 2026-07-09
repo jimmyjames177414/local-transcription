@@ -43,12 +43,66 @@ public sealed class AgentPanelViewModel : ObservableObject
         CopyCommand = new RelayCommand(Copy, () => SelectedSuggestion is not null);
         OpenContextFolderCommand = new RelayCommand(() => OpenFolder(ContextFolder));
         OpenOutputFolderCommand = new RelayCommand(() => OpenFolder(OutputFolder));
+        AskCommand = new AsyncRelayCommand(AskAsync, () => !string.IsNullOrWhiteSpace(AskText));
+    }
+
+    private string _askText = "";
+
+    public string AskText
+    {
+        get => _askText;
+        set
+        {
+            SetProperty(ref _askText, value);
+            AskCommand.RaiseCanExecuteChanged();
+        }
+    }
+
+    public AsyncRelayCommand AskCommand { get; private set; } = null!;
+
+    private async Task AskAsync()
+    {
+        string question = AskText.Trim();
+        if (question.Length == 0)
+        {
+            return;
+        }
+
+        AskText = "";
+        StatusText = "Asking agent...";
+        try
+        {
+            IReadOnlyList<AgentSuggestion> answers;
+            if (_agent is not null)
+            {
+                answers = await _agent.AskAsync(question);
+            }
+            else
+            {
+                var (suggestions, notice) = await AgentOneShot.AskAsync(_configService.Load(), question, _currentTranscriptPath());
+                answers = suggestions;
+                if (notice is not null)
+                {
+                    StatusText = notice;
+                }
+            }
+
+            foreach (var s in answers)
+            {
+                PostToUi(() => Suggestions.Insert(0, new AgentSuggestionItem(s)));
+            }
+            StatusText = answers.Count == 0 ? "Agent produced no answer." : $"Agent answered ({answers.Count}).";
+        }
+        catch (Exception ex)
+        {
+            StatusText = $"Ask failed: {ex.Message}";
+        }
     }
 
     public ObservableCollection<AgentSuggestionItem> Suggestions { get; } = new();
 
-    public string[] Modes { get; } = { "Off", "SilentObserver", "PrivateCoach" };
-    public string[] Providers { get; } = { "fake", "openai" };
+    public string[] Modes { get; } = { "Off", "SilentObserver", "PrivateCoach", "HotkeyOnly", "InterruptWhenImportant" };
+    public string[] Providers { get; } = { "fake", "openai", "realtime" };
 
     public AsyncRelayCommand StartCommand { get; }
     public AsyncRelayCommand StopCommand { get; }
@@ -170,7 +224,8 @@ public sealed class AgentPanelViewModel : ObservableObject
             {
                 StatusText = resolution.Notice;
             }
-            _agent = new MeetingAgent(resolution.Provider, sink: sink);
+            var (policy, voice) = AgentProviderFactory.CreatePolicy(appConfig);
+            _agent = new MeetingAgent(resolution.Provider, sink: sink, policy: policy, voice: voice);
 
             await _agent.StartAsync(new MeetingAgentOptions
             {

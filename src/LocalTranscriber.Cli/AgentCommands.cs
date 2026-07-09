@@ -20,6 +20,9 @@ public static class AgentCommands
         agent.AddCommand(BuildDismiss(configService));
         agent.AddCommand(BuildSummary(configService));
         agent.AddCommand(BuildActionItems(configService));
+        agent.AddCommand(BuildMode(configService));
+        agent.AddCommand(BuildAsk(configService));
+        agent.AddCommand(BuildVoice(configService));
         return agent;
     }
 
@@ -76,7 +79,8 @@ public static class AgentCommands
         {
             var config = configService.Load();
             var sink = new CompositeAgentSuggestionSink(config.Agent.AgentOutputFolder, Store(configService));
-            await using var agent = new MeetingAgent(new FakeMeetingAgentProvider(), sink: sink);
+            var (policy, voice) = AgentProviderFactory.CreatePolicy(config);
+            await using var agent = new MeetingAgent(new FakeMeetingAgentProvider(), sink: sink, policy: policy, voice: voice);
 
             var options = new MeetingAgentOptions
             {
@@ -138,7 +142,8 @@ public static class AgentCommands
             }
 
             var sink = new CompositeAgentSuggestionSink(config.Agent.AgentOutputFolder, Store(configService));
-            await using var agent = new MeetingAgent(resolution.Provider, sink: sink);
+            var (policy, voice) = AgentProviderFactory.CreatePolicy(config);
+            await using var agent = new MeetingAgent(resolution.Provider, sink: sink, policy: policy, voice: voice);
 
             await agent.StartAsync(new MeetingAgentOptions
             {
@@ -443,5 +448,95 @@ public static class AgentCommands
             Console.WriteLine(File.Exists(path) ? File.ReadAllText(path) : "No action items yet.");
         });
         return cmd;
+    }
+
+    private static Command BuildMode(ConfigService configService)
+    {
+        var modeArg = new Argument<string>("mode", "Off, SilentObserver, PrivateCoach, HotkeyOnly, InterruptWhenImportant");
+        var cmd = new Command("mode", "Set the agent response mode.");
+        cmd.AddArgument(modeArg);
+        cmd.SetHandler((string mode) =>
+        {
+            if (!Enum.TryParse<AgentMode>(mode, ignoreCase: true, out var parsed) || parsed == AgentMode.ExperimentalMeetingParticipant)
+            {
+                Console.Error.WriteLine($"Invalid or unavailable mode: {mode}");
+                Environment.ExitCode = 1;
+                return;
+            }
+
+            var config = configService.Load();
+            config.Agent.Mode = parsed.ToString();
+            configService.Save(config);
+            Console.WriteLine($"Agent mode set to {parsed}.");
+        }, modeArg);
+        return cmd;
+    }
+
+    private static Command BuildAsk(ConfigService configService)
+    {
+        var questionArg = new Argument<string>("question", "What to ask the agent about the current meeting.");
+        var transcriptOpt = new Option<string?>("--transcript", () => null, "Transcript .jsonl (default: newest in transcript folder).");
+        var cmd = new Command("ask", "Ask the agent a question using the latest transcript + context (works in any mode).");
+        cmd.AddArgument(questionArg);
+        cmd.AddOption(transcriptOpt);
+        cmd.SetHandler(async (string question, string? transcript) =>
+        {
+            var config = configService.Load();
+            var (suggestions, notice) = await AgentOneShot.AskAsync(config, question, transcript);
+            if (notice is not null)
+            {
+                Console.WriteLine(notice);
+            }
+
+            if (suggestions.Count == 0)
+            {
+                Console.WriteLine("(no answer produced)");
+                return;
+            }
+
+            foreach (var s in suggestions)
+            {
+                Console.WriteLine($"[{s.Priority}] {s.Type}: {s.Title}");
+                Console.WriteLine($"    {s.Message}");
+            }
+        }, questionArg, transcriptOpt);
+        return cmd;
+    }
+
+    private static Command BuildVoice(ConfigService configService)
+    {
+        var voice = new Command("voice", "Private voice output (local TTS to your default audio device).");
+
+        var test = new Command("test", "Speak a test sentence through the local TTS voice.");
+        test.SetHandler(async () =>
+        {
+            using var tts = new WindowsTtsAgentVoiceOutput();
+            Console.WriteLine("Speaking test sentence...");
+            await tts.SpeakAsync("LocalTranscriber agent voice test. High priority. This is what a private suggestion sounds like.");
+            Console.WriteLine("Done.");
+        });
+
+        var on = new Command("on", "Enable private voice output.");
+        on.SetHandler(() =>
+        {
+            var config = configService.Load();
+            config.Agent.Voice.Enabled = true;
+            configService.Save(config);
+            Console.WriteLine($"Voice enabled (speaks {config.Agent.Voice.MinimumPriorityToSpeak}+ priority in modes: {string.Join(", ", config.Agent.Voice.SpeakOnlyInModes)}).");
+        });
+
+        var off = new Command("off", "Disable private voice output.");
+        off.SetHandler(() =>
+        {
+            var config = configService.Load();
+            config.Agent.Voice.Enabled = false;
+            configService.Save(config);
+            Console.WriteLine("Voice disabled.");
+        });
+
+        voice.AddCommand(test);
+        voice.AddCommand(on);
+        voice.AddCommand(off);
+        return voice;
     }
 }

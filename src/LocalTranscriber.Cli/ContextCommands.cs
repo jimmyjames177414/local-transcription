@@ -12,6 +12,8 @@ public static class ContextCommands
         context.AddCommand(BuildList(configService));
         context.AddCommand(BuildShow(configService));
         context.AddCommand(BuildValidate(configService));
+        context.AddCommand(BuildSearch(configService));
+        context.AddCommand(BuildChunks(configService));
         return context;
     }
 
@@ -63,6 +65,54 @@ public static class ContextCommands
             }
             Console.WriteLine(doc.Content);
         }, nameArg);
+        return cmd;
+    }
+
+    private static Command BuildSearch(ConfigService configService)
+    {
+        var queryArg = new Argument<string>("query", "Search terms, e.g. \"deployment freeze\".");
+        var cmd = new Command("search", "Find the context chunks most relevant to a query.");
+        cmd.AddArgument(queryArg);
+        cmd.SetHandler(async (string query) =>
+        {
+            var retriever = new KeywordContextRetriever(new MarkdownContextPackService(), Options(configService));
+            var result = await retriever.RetrieveAsync(query, maxChunks: 8);
+            if (result.Chunks.Count == 0)
+            {
+                Console.WriteLine("No matching context chunks.");
+                return;
+            }
+
+            foreach (var scored in result.Chunks)
+            {
+                Console.WriteLine($"[{scored.Score:F2}] {scored.Chunk.SourceFile} :: {scored.Chunk.Heading}");
+                string preview = scored.Chunk.Text.Replace('\n', ' ');
+                Console.WriteLine($"    {(preview.Length > 140 ? preview[..140] + "..." : preview)}");
+            }
+        }, queryArg);
+        return cmd;
+    }
+
+    private static Command BuildChunks(ConfigService configService)
+    {
+        var cmd = new Command("chunks", "Show how context documents split into retrieval chunks.");
+        cmd.SetHandler(async () =>
+        {
+            var service = new MarkdownContextPackService();
+            var pack = await service.LoadAsync(Options(configService));
+            int total = 0;
+            foreach (var doc in pack.Documents)
+            {
+                var chunks = ContextChunker.Chunk(doc);
+                total += chunks.Count;
+                Console.WriteLine($"{doc.FileName}: {chunks.Count} chunk(s)");
+                foreach (var c in chunks)
+                {
+                    Console.WriteLine($"    [{c.Heading}] {c.Text.Length} chars");
+                }
+            }
+            Console.WriteLine($"Total: {total} chunks.");
+        });
         return cmd;
     }
 

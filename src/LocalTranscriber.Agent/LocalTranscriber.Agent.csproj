@@ -6,6 +6,10 @@
     <ProjectReference Include="..\LocalTranscriber.Context\LocalTranscriber.Context.csproj" />
   </ItemGroup>
 
+  <ItemGroup>
+    <PackageReference Include="System.Speech" Version="10.0.9" />
+  </ItemGroup>
+
   <PropertyGroup>
     <TargetFramework>net8.0</TargetFramework>
     <ImplicitUsings>enable</ImplicitUsings>

@@ -76,4 +76,27 @@ public static class AgentProviderFactory
         static Resolution Fallback(string notice)
             => new(new FakeMeetingAgentProvider(), notice + " Using the offline fake provider.");
     }
+
+    /// <summary>Builds the response policy + voice output from config (voice off => NoOp).</summary>
+    public static (AgentResponsePolicy Policy, IAgentVoiceOutput Voice) CreatePolicy(AppConfig config)
+    {
+        var voiceConfig = config.Agent.Voice;
+        var policy = new AgentResponsePolicy(new AgentPolicyOptions
+        {
+            VoiceEnabled = voiceConfig.Enabled,
+            MinimumPriorityToSpeak = Enum.TryParse<AgentSuggestionPriority>(voiceConfig.MinimumPriorityToSpeak, true, out var p)
+                ? p
+                : AgentSuggestionPriority.High,
+            SpeakOnlyInModes = voiceConfig.SpeakOnlyInModes
+                .Select(m => Enum.TryParse<AgentMode>(m, true, out var mode) ? mode : AgentMode.Off)
+                .Where(m => m != AgentMode.Off)
+                .ToArray()
+        });
+
+        IAgentVoiceOutput voice = voiceConfig.Enabled
+            ? new WindowsTtsAgentVoiceOutput()
+            : new NoOpAgentVoiceOutput();
+
+        return (policy, voice);
+    }
 }

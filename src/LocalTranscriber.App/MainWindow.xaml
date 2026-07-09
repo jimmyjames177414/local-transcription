@@ -85,11 +85,23 @@
                     <Button Grid.Column="5" Content="Open output" Margin="8,0,0,0" Padding="8,2" Command="{Binding AgentPanel.OpenOutputFolderCommand}" />
                 </Grid>
 
-                <StackPanel Grid.Row="2" Orientation="Horizontal" Margin="0,0,0,8">
-                    <Button Content="Start Agent" Width="110" Command="{Binding AgentPanel.StartCommand}" />
-                    <Button Content="Stop Agent" Width="110" Margin="8,0,0,0" Command="{Binding AgentPanel.StopCommand}" />
-                    <Button Content="Dismiss" Width="90" Margin="18,0,0,0" Command="{Binding AgentPanel.DismissCommand}" />
-                    <Button Content="Copy" Width="90" Margin="8,0,0,0" Command="{Binding AgentPanel.CopyCommand}" />
+                <StackPanel Grid.Row="2" Margin="0,0,0,8">
+                    <StackPanel Orientation="Horizontal" Margin="0,0,0,6">
+                        <Button Content="Start Agent" Width="110" Command="{Binding AgentPanel.StartCommand}" />
+                        <Button Content="Stop Agent" Width="110" Margin="8,0,0,0" Command="{Binding AgentPanel.StopCommand}" />
+                        <Button Content="Dismiss" Width="90" Margin="18,0,0,0" Command="{Binding AgentPanel.DismissCommand}" />
+                        <Button Content="Copy" Width="90" Margin="8,0,0,0" Command="{Binding AgentPanel.CopyCommand}" />
+                    </StackPanel>
+                    <Grid>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="Auto" />
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="Auto" />
+                        </Grid.ColumnDefinitions>
+                        <TextBlock Grid.Column="0" Text="Ask agent:" VerticalAlignment="Center" Margin="0,0,6,0" />
+                        <TextBox Grid.Column="1" Text="{Binding AgentPanel.AskText, UpdateSourceTrigger=PropertyChanged}" VerticalAlignment="Center" />
+                        <Button Grid.Column="2" Content="Ask" Width="70" Margin="8,0,0,0" Command="{Binding AgentPanel.AskCommand}" />
+                    </Grid>
                 </StackPanel>
 
                 <ListBox Grid.Row="3"

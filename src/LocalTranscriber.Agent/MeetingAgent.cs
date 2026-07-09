@@ -16,11 +16,12 @@ public sealed class MeetingAgent : IMeetingAgent, IAsyncDisposable
     private readonly IContextPackService _contextService;
     private readonly ITranscriptEventTailer _tailer;
     private readonly IAgentSuggestionSink? _sink;
+    private readonly AgentResponsePolicy _policy;
+    private readonly IAgentVoiceOutput _voice;
 
     private readonly SemaphoreSlim _control = new(1, 1);
     private readonly Channel<AgentSuggestion> _suggestions = Channel.CreateUnbounded<AgentSuggestion>();
     private readonly TranscriptEventDeduplicator _dedup = new();
-    private readonly HashSet<string> _emittedKeys = new();
 
     private MeetingAgentOptions? _options;
     private CancellationTokenSource? _cts;
@@ -29,6 +30,7 @@ public sealed class MeetingAgent : IMeetingAgent, IAsyncDisposable
     private RollingTranscriptWindow? _window;
     private readonly MeetingRunningSummary _summary = new();
     private ContextPack _contextPack = ContextPack.Empty;
+    private ContextComposer? _composer;
     private volatile bool _hasNewEvents;
 
     private MeetingAgentState _state = MeetingAgentState.NotStarted;
@@ -43,13 +45,19 @@ public sealed class MeetingAgent : IMeetingAgent, IAsyncDisposable
         IMeetingAgentProvider provider,
         IContextPackService? contextService = null,
         ITranscriptEventTailer? tailer = null,
-        IAgentSuggestionSink? sink = null)
+        IAgentSuggestionSink? sink = null,
+        AgentResponsePolicy? policy = null,
+        IAgentVoiceOutput? voice = null)
     {
         _provider = provider;
         _contextService = contextService ?? new MarkdownContextPackService();
         _tailer = tailer ?? new TranscriptEventTailer();
         _sink = sink;
+        _policy = policy ?? new AgentResponsePolicy();
+        _voice = voice ?? new NoOpAgentVoiceOutput();
     }
+
+    public AgentResponsePolicy Policy => _policy;
 
     public async Task StartAsync(MeetingAgentOptions options, CancellationToken cancellationToken = default)
     {
@@ -71,18 +79,19 @@ public sealed class MeetingAgent : IMeetingAgent, IAsyncDisposable
             _error = null;
             _eventsSeen = 0;
             _suggestionsEmitted = 0;
-            _emittedKeys.Clear();
             _hasNewEvents = false;
             _window = new RollingTranscriptWindow(TimeSpan.FromMinutes(options.RollingWindowMinutes), options.MaxTranscriptEventsPerPrompt);
 
             Directory.CreateDirectory(options.AgentOutputFolder);
 
-            _contextPack = await _contextService.LoadAsync(new ContextPackOptions
+            var contextOptions = new ContextPackOptions
             {
                 ContextFolder = options.ContextFolder,
                 MaxTotalCharacters = options.MaxContextCharacters,
                 RequiredFiles = options.RequiredContextFiles
-            }, cancellationToken).ConfigureAwait(false);
+            };
+            _contextPack = await _contextService.LoadAsync(contextOptions, cancellationToken).ConfigureAwait(false);
+            _composer = new ContextComposer(_contextService, contextOptions);
 
             foreach (var warning in _contextPack.Warnings)
             {
@@ -181,10 +190,29 @@ public sealed class MeetingAgent : IMeetingAgent, IAsyncDisposable
             return emitted;
         }
 
+        // Retrieval-composed context: required summary + chunks relevant to the recent talk.
+        string contextText = _contextPack.CombinedText;
+        if (_composer is not null)
+        {
+            try
+            {
+                string query = string.Join(" ", window.TakeLast(20).Select(e => e.Text)) + " " + (userQuestion ?? "");
+                string composed = await _composer.ComposeAsync(query, cancellationToken).ConfigureAwait(false);
+                if (!string.IsNullOrWhiteSpace(composed))
+                {
+                    contextText = composed;
+                }
+            }
+            catch (Exception ex)
+            {
+                AppLog.Warn("agent", $"Context retrieval failed, using full pack: {ex.Message}");
+            }
+        }
+
         var request = new AgentProviderRequest
         {
             WindowEvents = window,
-            ContextSummary = _contextPack.CombinedText,
+            ContextSummary = contextText,
             RunningSummary = _summary.Current,
             KnownSpeakers = window.Select(e => e.Speaker.DisplayName).Distinct().ToArray(),
             Mode = _options?.Mode ?? AgentMode.SilentObserver,
@@ -210,12 +238,11 @@ public sealed class MeetingAgent : IMeetingAgent, IAsyncDisposable
         _lastAnalysisAt = DateTimeOffset.Now;
         _summary.Update(result.RunningSummaryUpdate);
 
+        var mode = _options?.Mode ?? AgentMode.SilentObserver;
         foreach (var suggestion in result.Suggestions)
         {
-            // Suppress repeats of the same type+title within this run (periodic passes only;
-            // explicit asks always get their answer through).
-            string key = $"{suggestion.Type}|{Normalize(suggestion.Title)}";
-            if (userQuestion is null && !_emittedKeys.Add(key))
+            var decision = _policy.Decide(suggestion, mode, isAskResponse: userQuestion is not null);
+            if (!decision.Store)
             {
                 continue;
             }
@@ -226,8 +253,17 @@ public sealed class MeetingAgent : IMeetingAgent, IAsyncDisposable
             }
 
             Interlocked.Increment(ref _suggestionsEmitted);
-            _suggestions.Writer.TryWrite(suggestion);
             emitted.Add(suggestion);
+
+            if (decision.Show)
+            {
+                _suggestions.Writer.TryWrite(suggestion);
+            }
+
+            if (decision.Speak)
+            {
+                _ = _voice.SpeakAsync($"{suggestion.Priority} {suggestion.Type}. {suggestion.Title}. {suggestion.Message}", cancellationToken);
+            }
         }
 
         if (_sink is not null)
@@ -241,8 +277,6 @@ public sealed class MeetingAgent : IMeetingAgent, IAsyncDisposable
     /// <summary>On-demand question (HotkeyOnly / Ask). Runs an immediate analysis pass and returns what it produced.</summary>
     public Task<IReadOnlyList<AgentSuggestion>> AskAsync(string question, CancellationToken cancellationToken = default)
         => RunAnalysisAsync(question, cancellationToken);
-
-    private static string Normalize(string s) => s.Trim().ToLowerInvariant();
 
     public async Task StopAsync(CancellationToken cancellationToken = default)
     {
@@ -321,6 +355,7 @@ public sealed class MeetingAgent : IMeetingAgent, IAsyncDisposable
         await StopAsync().ConfigureAwait(false);
         _suggestions.Writer.TryComplete();
         _control.Dispose();
+        _voice.Dispose();
         await _tailer.DisposeAsync().ConfigureAwait(false);
     }
 }

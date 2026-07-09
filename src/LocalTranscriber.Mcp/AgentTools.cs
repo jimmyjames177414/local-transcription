@@ -122,6 +122,39 @@ public sealed class AgentTools
         return $"Agent mode set to {parsed}.";
     }
 
+    [McpServerTool(Name = "agent_get_mode"), Description("Get the current agent response mode.")]
+    public string GetMode()
+    {
+        _logger.Log("agent_get_mode");
+        return Config.Agent.Mode;
+    }
+
+    [McpServerTool(Name = "agent_ask"), Description("Ask the agent a question about the current meeting. Uses the latest transcript + local context with the configured provider.")]
+    public async Task<string> Ask([Description("The question to ask.")] string question)
+    {
+        _logger.Log("agent_ask", question.Length > 60 ? question[..60] : question);
+        if (string.IsNullOrWhiteSpace(question))
+        {
+            return "Question is required.";
+        }
+
+        try
+        {
+            var (suggestions, notice) = await AgentOneShot.AskAsync(Config, question);
+            if (suggestions.Count == 0)
+            {
+                return notice ?? "(no answer produced)";
+            }
+
+            var lines = suggestions.Select(s => $"[{s.Priority}] {s.Type}: {s.Title}\n{s.Message}");
+            return (notice is null ? "" : notice + "\n\n") + string.Join("\n\n", lines);
+        }
+        catch (Exception ex)
+        {
+            return $"Ask failed: {ex.Message}";
+        }
+    }
+
     [McpServerTool(Name = "context_list_documents"), Description("List context pack documents available to the agent.")]
     public async Task<string> ContextListDocuments()
     {
