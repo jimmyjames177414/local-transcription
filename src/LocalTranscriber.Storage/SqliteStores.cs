@@ -183,9 +183,7 @@ public sealed class SqliteKnownSpeakerStore : IKnownSpeakerStore
         var existing = await GetByNameAsync(fromName, cancellationToken).ConfigureAwait(false);
         if (existing is null)
         {
-            // Renaming a not-yet-known temporary speaker enrolls it as a known name.
-            await CreateAsync(toName, cancellationToken: cancellationToken).ConfigureAwait(false);
-            return true;
+            return false; // Unknown speaker — use the session list to name a live speaker, or speakers enroll for a WAV sample.
         }
 
         using var connection = _db.OpenConnection();
@@ -297,6 +295,53 @@ public sealed class SqliteSpeakerEmbeddingStore : ISpeakerEmbeddingStore
                 DateTimeOffset.Parse(reader.GetString(5)),
                 reader.IsDBNull(6) ? null : reader.GetString(6)));
         }
+        return result;
+    }
+}
+
+public sealed class SqliteSpeakerAliasStore : ISpeakerAliasStore
+{
+    private readonly SqliteDatabase _db;
+
+    public SqliteSpeakerAliasStore(SqliteDatabase db) => _db = db;
+
+    public async Task UpsertAsync(string sessionId, string sessionSpeakerId, string knownSpeakerId, CancellationToken cancellationToken = default)
+    {
+        using var connection = _db.OpenConnection();
+        using var cmd = connection.CreateCommand();
+        cmd.CommandText = """
+            INSERT INTO speaker_aliases (session_id, session_speaker_id, known_speaker_id, created_at)
+            VALUES ($sid, $ssid, $kid, $created)
+            ON CONFLICT (session_id, session_speaker_id) DO UPDATE SET known_speaker_id = $kid
+            """;
+        cmd.Parameters.AddWithValue("$sid", sessionId);
+        cmd.Parameters.AddWithValue("$ssid", sessionSpeakerId);
+        cmd.Parameters.AddWithValue("$kid", knownSpeakerId);
+        cmd.Parameters.AddWithValue("$created", DateTimeOffset.Now.ToString("o"));
+        await cmd.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+    }
+
+    public async Task<string?> ResolveAsync(string sessionId, string sessionSpeakerId, CancellationToken cancellationToken = default)
+    {
+        using var connection = _db.OpenConnection();
+        using var cmd = connection.CreateCommand();
+        cmd.CommandText = "SELECT known_speaker_id FROM speaker_aliases WHERE session_id = $sid AND session_speaker_id = $ssid";
+        cmd.Parameters.AddWithValue("$sid", sessionId);
+        cmd.Parameters.AddWithValue("$ssid", sessionSpeakerId);
+        using var reader = await cmd.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
+        return await reader.ReadAsync(cancellationToken).ConfigureAwait(false) ? reader.GetString(0) : null;
+    }
+
+    public async Task<IReadOnlyList<(string SessionSpeakerId, string KnownSpeakerId)>> ListForSessionAsync(string sessionId, CancellationToken cancellationToken = default)
+    {
+        using var connection = _db.OpenConnection();
+        using var cmd = connection.CreateCommand();
+        cmd.CommandText = "SELECT session_speaker_id, known_speaker_id FROM speaker_aliases WHERE session_id = $sid";
+        cmd.Parameters.AddWithValue("$sid", sessionId);
+        var result = new List<(string, string)>();
+        using var reader = await cmd.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
+        while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
+            result.Add((reader.GetString(0), reader.GetString(1)));
         return result;
     }
 }

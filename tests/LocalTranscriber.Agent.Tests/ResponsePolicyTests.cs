@@ -59,6 +59,16 @@ public class ResponsePolicyTests
     }
 
     [Fact]
+    public void AskResponse_SpeaksWhenVoiceEnabled_SilentWhenDisabled()
+    {
+        var withVoice = new AgentResponsePolicy(new AgentPolicyOptions { VoiceEnabled = true });
+        Assert.True(withVoice.Decide(Make(title: "Q"), AgentMode.HotkeyOnly, isAskResponse: true).Speak);
+
+        var noVoice = new AgentResponsePolicy(new AgentPolicyOptions { VoiceEnabled = false });
+        Assert.False(noVoice.Decide(Make(title: "Q"), AgentMode.HotkeyOnly, isAskResponse: true).Speak);
+    }
+
+    [Fact]
     public void InterruptWhenImportant_OnlyShowsHighAndCritical()
     {
         var policy = new AgentResponsePolicy();

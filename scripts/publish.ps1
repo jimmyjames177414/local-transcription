@@ -33,7 +33,8 @@ if (Test-Path "models/speaker/segmentation.onnx") {
   "speakerUncertainThreshold": 0.62,
   "chunkSeconds": 10,
   "overlapMs": 500,
-  "flushIntervalMs": 1000
+  "flushIntervalMs": 1000,
+  "filterNonSpeech": true
 }
 "@ | Set-Content "$out/config.example.json"
 

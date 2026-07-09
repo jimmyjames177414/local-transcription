@@ -4,6 +4,7 @@ using System.IO;
 using System.Windows;
 using LocalTranscriber.Agent;
 using LocalTranscriber.App.Mvvm;
+using LocalTranscriber.Shared;
 using LocalTranscriber.Storage;
 
 namespace LocalTranscriber.App.ViewModels;
@@ -73,23 +74,31 @@ public sealed class AgentPanelViewModel : ObservableObject
         try
         {
             IReadOnlyList<AgentSuggestion> answers;
+            bool insertDirectly;
             if (_agent is not null)
             {
+                // ConsumeSuggestionsAsync is already draining the suggestion channel and inserting
+                // every shown answer into Suggestions. Don't insert again or each answer appears twice.
                 answers = await _agent.AskAsync(question);
+                insertDirectly = false;
             }
             else
             {
                 var (suggestions, notice) = await AgentOneShot.AskAsync(_configService.Load(), question, _currentTranscriptPath());
                 answers = suggestions;
+                insertDirectly = true;
                 if (notice is not null)
                 {
                     StatusText = notice;
                 }
             }
 
-            foreach (var s in answers)
+            if (insertDirectly)
             {
-                PostToUi(() => Suggestions.Insert(0, new AgentSuggestionItem(s)));
+                foreach (var s in answers)
+                {
+                    PostToUi(() => Suggestions.Insert(0, new AgentSuggestionItem(s)));
+                }
             }
             StatusText = answers.Count == 0 ? "Agent produced no answer." : $"Agent answered ({answers.Count}).";
         }
@@ -139,7 +148,15 @@ public sealed class AgentPanelViewModel : ObservableObject
         set
         {
             SetProperty(ref _selectedProvider, value);
-            PersistConfig(c => c.Agent.Provider = value);
+            PersistConfig(c =>
+            {
+                c.Agent.Provider = value;
+                // Selecting a cloud provider is the explicit user consent action — enable its gate
+                // so the factory doesn't silently fall back to the offline fake provider.
+                // A valid API key is still required; without one, the factory falls back with a notice.
+                if (value == "openai")   c.Agent.OpenAI.Enabled = true;
+                if (value == "realtime") c.Agent.Realtime.Enabled = true;
+            });
         }
     }
 
@@ -225,7 +242,8 @@ public sealed class AgentPanelViewModel : ObservableObject
                 StatusText = resolution.Notice;
             }
             var (policy, voice) = AgentProviderFactory.CreatePolicy(appConfig);
-            _agent = new MeetingAgent(resolution.Provider, sink: sink, policy: policy, voice: voice);
+            var nameResolver = new SqliteSpeakerNameResolver(new SqliteSpeakerAliasStore(db), new SqliteKnownSpeakerStore(db));
+            _agent = new MeetingAgent(resolution.Provider, sink: sink, policy: policy, voice: voice, nameResolver: nameResolver);
 
             await _agent.StartAsync(new MeetingAgentOptions
             {

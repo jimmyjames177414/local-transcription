@@ -129,5 +129,13 @@ public sealed class SqliteDatabase
         );
 
         CREATE INDEX IF NOT EXISTS idx_agent_suggestions_created ON agent_suggestions(created_at);
+
+        CREATE TABLE IF NOT EXISTS speaker_aliases (
+            session_id TEXT NOT NULL,
+            session_speaker_id TEXT NOT NULL,
+            known_speaker_id TEXT NOT NULL,
+            created_at TEXT NOT NULL,
+            PRIMARY KEY (session_id, session_speaker_id)
+        );
         """;
 }

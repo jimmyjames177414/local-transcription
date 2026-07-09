@@ -80,11 +80,76 @@ public class SqliteStoreTests : IDisposable
     }
 
     [Fact]
-    public async Task Rename_UnknownSpeaker_CreatesIt()
+    public async Task SpeakerAliases_UpsertResolveAndListBySession()
     {
+        var store = new SqliteSpeakerAliasStore(_db);
+
+        Assert.Null(await store.ResolveAsync("s1", "session_speaker_1"));
+
+        await store.UpsertAsync("s1", "session_speaker_1", "known_a");
+        await store.UpsertAsync("s1", "session_speaker_2", "known_b");
+        Assert.Equal("known_a", await store.ResolveAsync("s1", "session_speaker_1"));
+
+        // Upsert on the same (session, speaker) key updates rather than duplicates.
+        await store.UpsertAsync("s1", "session_speaker_1", "known_c");
+        Assert.Equal("known_c", await store.ResolveAsync("s1", "session_speaker_1"));
+
+        var forSession = await store.ListForSessionAsync("s1");
+        Assert.Equal(2, forSession.Count);
+        Assert.Empty(await store.ListForSessionAsync("other"));
+    }
+
+    [Fact]
+    public async Task SpeakerNameResolver_ResolvesSessionAliasAndEnrolledIds()
+    {
+        var speakers = new SqliteKnownSpeakerStore(_db);
+        var aliases = new SqliteSpeakerAliasStore(_db);
+        var joe = await speakers.CreateAsync("Joe");
+        await aliases.UpsertAsync("s1", "session_speaker_1", joe.Id);
+
+        // Zero TTL so every call re-reads and we exercise the DB path, not the cache.
+        var resolver = new SqliteSpeakerNameResolver(aliases, speakers, TimeSpan.Zero);
+
+        // Session-local id resolves via the alias table -> display name.
+        Assert.Equal("Joe", await resolver.ResolveDisplayNameAsync("s1", "session_speaker_1"));
+        // Enrolled id resolves directly against known_speakers.
+        Assert.Equal("Joe", await resolver.ResolveDisplayNameAsync("s1", joe.Id));
+        // No alias for this session speaker -> null.
+        Assert.Null(await resolver.ResolveDisplayNameAsync("s1", "session_speaker_2"));
+        // Alias is session-scoped: same label in another session is not resolved.
+        Assert.Null(await resolver.ResolveDisplayNameAsync("s2", "session_speaker_1"));
+        // Reserved ids never override.
+        Assert.Null(await resolver.ResolveDisplayNameAsync("s1", "mic"));
+        Assert.Null(await resolver.ResolveDisplayNameAsync("s1", "speaker_unknown"));
+    }
+
+    [Fact]
+    public async Task SpeakerNameResolver_CachesWithinTtl_ReflectsChangeAfterExpiry()
+    {
+        var speakers = new SqliteKnownSpeakerStore(_db);
+        var aliases = new SqliteSpeakerAliasStore(_db);
+        var joe = await speakers.CreateAsync("Joe");
+        await aliases.UpsertAsync("s1", "session_speaker_1", joe.Id);
+
+        var resolver = new SqliteSpeakerNameResolver(aliases, speakers, TimeSpan.FromMilliseconds(50));
+        Assert.Equal("Joe", await resolver.ResolveDisplayNameAsync("s1", "session_speaker_1"));
+
+        await speakers.RenameAsync("Joe", "Joseph");
+        // Still cached as the old name inside the TTL window.
+        Assert.Equal("Joe", await resolver.ResolveDisplayNameAsync("s1", "session_speaker_1"));
+
+        await Task.Delay(80);
+        Assert.Equal("Joseph", await resolver.ResolveDisplayNameAsync("s1", "session_speaker_1"));
+    }
+
+    [Fact]
+    public async Task Rename_UnknownSpeaker_ReturnsFalse()
+    {
+        // The old behavior silently created an embedding-less speaker (a trap).
+        // The new behavior returns false so callers can show guidance instead.
         var store = new SqliteKnownSpeakerStore(_db);
-        Assert.True(await store.RenameAsync("Speaker 9", "Martina"));
-        Assert.NotNull(await store.GetByNameAsync("Martina"));
+        Assert.False(await store.RenameAsync("Speaker 9", "Martina"));
+        Assert.Null(await store.GetByNameAsync("Martina"));
     }
 
     [Fact]

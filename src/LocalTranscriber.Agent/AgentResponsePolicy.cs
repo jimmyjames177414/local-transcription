@@ -114,7 +114,7 @@ public sealed class AgentResponsePolicy
         // Explicit asks are always delivered (the user requested them).
         if (isAskResponse)
         {
-            return new AgentResponseDecision(Store: true, Show: true, Speak: false, "ask response");
+            return new AgentResponseDecision(Store: true, Show: true, Speak: _options.VoiceEnabled, "ask response");
         }
 
         if (!_dedup.IsNew(suggestion))

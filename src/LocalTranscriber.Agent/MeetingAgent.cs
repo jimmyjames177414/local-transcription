@@ -18,6 +18,7 @@ public sealed class MeetingAgent : IMeetingAgent, IAsyncDisposable
     private readonly IAgentSuggestionSink? _sink;
     private readonly AgentResponsePolicy _policy;
     private readonly IAgentVoiceOutput _voice;
+    private readonly ISpeakerNameResolver? _nameResolver;
 
     private readonly SemaphoreSlim _control = new(1, 1);
     private readonly Channel<AgentSuggestion> _suggestions = Channel.CreateUnbounded<AgentSuggestion>();
@@ -47,7 +48,8 @@ public sealed class MeetingAgent : IMeetingAgent, IAsyncDisposable
         ITranscriptEventTailer? tailer = null,
         IAgentSuggestionSink? sink = null,
         AgentResponsePolicy? policy = null,
-        IAgentVoiceOutput? voice = null)
+        IAgentVoiceOutput? voice = null,
+        ISpeakerNameResolver? nameResolver = null)
     {
         _provider = provider;
         _contextService = contextService ?? new MarkdownContextPackService();
@@ -55,6 +57,7 @@ public sealed class MeetingAgent : IMeetingAgent, IAsyncDisposable
         _sink = sink;
         _policy = policy ?? new AgentResponsePolicy();
         _voice = voice ?? new NoOpAgentVoiceOutput();
+        _nameResolver = nameResolver;
     }
 
     public AgentResponsePolicy Policy => _policy;
@@ -184,10 +187,26 @@ public sealed class MeetingAgent : IMeetingAgent, IAsyncDisposable
     private async Task<IReadOnlyList<AgentSuggestion>> RunAnalysisAsync(string? userQuestion, CancellationToken cancellationToken)
     {
         var emitted = new List<AgentSuggestion>();
-        var window = _window?.Snapshot() ?? Array.Empty<TranscriptEvent>();
+        IReadOnlyList<TranscriptEvent> window = _window?.Snapshot() ?? Array.Empty<TranscriptEvent>();
         if (window.Count == 0 && userQuestion is null)
         {
             return emitted;
+        }
+
+        // Resolve speaker display names at read time so renames propagate retroactively to the full window.
+        // Each event carries its own SessionId (from the tailed .jsonl), which is the key the alias
+        // table was written under — so this works whether the agent runs against a live session or a
+        // previously recorded transcript, without the caller having to thread a session id through.
+        if (_nameResolver is not null && window.Count > 0)
+        {
+            var resolved = new TranscriptEvent[window.Count];
+            for (int i = 0; i < window.Count; i++)
+            {
+                var e = window[i];
+                string? name = await _nameResolver.ResolveDisplayNameAsync(e.SessionId, e.Speaker.SpeakerId, cancellationToken).ConfigureAwait(false);
+                resolved[i] = name is not null ? e with { Speaker = e.Speaker with { DisplayName = name, IsKnown = true } } : e;
+            }
+            window = resolved;
         }
 
         // Retrieval-composed context: required summary + chunks relevant to the recent talk.

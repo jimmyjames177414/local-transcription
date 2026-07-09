@@ -68,6 +68,12 @@ public sealed class SettingsViewModel : ObservableObject
         set { _config.EnableSystemCapture = value; OnPropertyChanged(); }
     }
 
+    public bool FilterNonSpeech
+    {
+        get => _config.FilterNonSpeech;
+        set { _config.FilterNonSpeech = value; OnPropertyChanged(); }
+    }
+
     public string DefaultMicSpeakerName
     {
         get => _config.DefaultMicSpeakerName;

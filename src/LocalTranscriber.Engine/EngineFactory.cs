@@ -15,6 +15,7 @@ public static class EngineFactory
         var db = new SqliteDatabase(config.DatabasePath);
         var speakerStore = new SqliteKnownSpeakerStore(db);
         var embeddingStore = new SqliteSpeakerEmbeddingStore(db);
+        var aliasStore = new SqliteSpeakerAliasStore(db);
 
         return new RealTranscriptionEngine(
             transcription: new WhisperCppTranscriptionService(),
@@ -26,7 +27,9 @@ public static class EngineFactory
                 UncertainThreshold = config.SpeakerUncertainThreshold
             }),
             sessionStore: new SqliteSessionStore(db),
-            eventStore: new SqliteTranscriptEventStore(db));
+            eventStore: new SqliteTranscriptEventStore(db),
+            speakerStore: speakerStore,
+            aliasStore: aliasStore);
     }
 
     public static TranscriptionSessionOptions CreateSessionOptions(AppConfig config, string? outputFolder = null, bool? mic = null, bool? system = null)
@@ -45,7 +48,8 @@ public static class EngineFactory
             WhisperModelPath = config.WhisperModelPath,
             SpeakerModelDir = config.SpeakerModelPath,
             ChunkSeconds = config.ChunkSeconds,
-            OverlapMs = config.OverlapMs
+            OverlapMs = config.OverlapMs,
+            FilterNonSpeech = config.FilterNonSpeech
         };
     }
 }

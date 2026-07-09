@@ -183,7 +183,8 @@
                     <TextBox Text="{Binding Settings.TranscriptFolder, UpdateSourceTrigger=PropertyChanged}" Margin="0,2,0,10" />
 
                     <CheckBox Content="Enable microphone capture" IsChecked="{Binding Settings.EnableMicCapture}" Margin="0,0,0,6" />
-                    <CheckBox Content="Enable system audio capture" IsChecked="{Binding Settings.EnableSystemCapture}" Margin="0,0,0,10" />
+                    <CheckBox Content="Enable system audio capture" IsChecked="{Binding Settings.EnableSystemCapture}" Margin="0,0,0,6" />
+                    <CheckBox Content="Capture speech only (drop sound effects like &quot;(engine revving)&quot;)" IsChecked="{Binding Settings.FilterNonSpeech}" Margin="0,0,0,10" />
 
                     <TextBlock Text="Default microphone speaker name" FontWeight="SemiBold" />
                     <TextBox Text="{Binding Settings.DefaultMicSpeakerName, UpdateSourceTrigger=PropertyChanged}" Margin="0,2,0,10" />

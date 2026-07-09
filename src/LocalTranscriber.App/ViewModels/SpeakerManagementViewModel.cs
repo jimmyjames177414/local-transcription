@@ -32,7 +32,7 @@ public sealed class SpeakerManagementViewModel : ObservableObject
     public AsyncRelayCommand RenameCommand { get; }
     public AsyncRelayCommand ForgetCommand { get; }
 
-    public string Note => "Voice matching arrives in a later phase. Names and (later) voice embeddings are stored locally in SQLite.";
+    public string Note => "Voice embeddings are stored locally in SQLite. Enroll a speaker via: localtranscriber speakers enroll --name \"Name\" --audio <sample.wav>";
 
     public KnownSpeaker? SelectedSpeaker
     {

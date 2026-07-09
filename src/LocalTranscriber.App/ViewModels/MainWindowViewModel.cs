@@ -117,12 +117,21 @@ public sealed class MainWindowViewModel : ObservableObject
             CurrentJsonlPath = options.OutputJsonlPath;
             SetState(TranscriptionSessionState.Recording);
 
+            // Surface any non-fatal start warnings (e.g. a skipped audio source).
+            var status = await _engine.GetStatusAsync();
+            if (!string.IsNullOrWhiteSpace(status.Error))
+            {
+                ErrorText = status.Error;
+                AppLog.Warn("app", status.Error);
+            }
+
             _streamCts = new CancellationTokenSource();
             _ = ConsumeEventsAsync(_streamCts.Token);
         }
         catch (Exception ex)
         {
             ErrorText = ex.Message;
+            AppLog.Error("app", $"Start failed: {ex.Message}");
             SetState(TranscriptionSessionState.Faulted);
         }
     }

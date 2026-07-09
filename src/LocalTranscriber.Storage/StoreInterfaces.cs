@@ -33,3 +33,10 @@ public interface ISpeakerEmbeddingStore
     Task<IReadOnlyList<StoredEmbedding>> ListAllAsync(CancellationToken cancellationToken = default);
     Task DeleteBySpeakerAsync(string speakerId, CancellationToken cancellationToken = default);
 }
+
+public interface ISpeakerAliasStore
+{
+    Task UpsertAsync(string sessionId, string sessionSpeakerId, string knownSpeakerId, CancellationToken cancellationToken = default);
+    Task<string?> ResolveAsync(string sessionId, string sessionSpeakerId, CancellationToken cancellationToken = default);
+    Task<IReadOnlyList<(string SessionSpeakerId, string KnownSpeakerId)>> ListForSessionAsync(string sessionId, CancellationToken cancellationToken = default);
+}
