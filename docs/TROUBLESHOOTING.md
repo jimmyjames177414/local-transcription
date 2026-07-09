@@ -33,6 +33,21 @@ Whisper hallucinates descriptions on noise. The engine skips silent windows, but
 - Dev checkout: `./output/` (config, DB, logs, transcripts)
 - Packaged: config/DB/logs under `%AppData%\LocalTranscriber\`, transcripts under `Documents\LocalTranscriber\Transcripts\`
 
+## Agent shows "Using the offline fake provider"
+The configured provider could not start — the message says why (not enabled, or no key). See docs/OPENAI_PROVIDER.md. The fake provider is keyword-based and intentionally dumb.
+
+## Agent produces no suggestions
+- Is a session writing the `.jsonl` the agent watches? `agent status` shows latest activity.
+- SilentObserver still requires new transcript events; silence in → silence out.
+- With placeholders in `context/`, the agent has no project knowledge — fill `codename-summary.md`.
+- Some suggestions are stored but not shown (cooldown/low confidence/dismissed): `agent suggestions --include-dismissed`.
+
+## Agent voice doesn't speak
+`agent voice on`, then check: mode must be PrivateCoach or InterruptWhenImportant, priority ≥ High, and voice goes to the DEFAULT audio device — set your headphones as default. `agent voice test` bypasses everything except TTS itself.
+
+## Realtime provider fails
+`LT_REALTIME_DEBUG=1 localtranscriber agent test-realtime ...` dumps raw events. Transient corporate-proxy SSL failures happen — retry. See docs/REALTIME_PROVIDER.md.
+
 ## MCP server not responding in Claude
 - Register with: `claude mcp add local-transcriber -- dotnet run --project src/LocalTranscriber.Mcp` (from repo root)
 - The server is stdio-only; nothing should print to its stdout except protocol traffic.

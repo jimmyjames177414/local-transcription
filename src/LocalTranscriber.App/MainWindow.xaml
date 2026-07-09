@@ -124,7 +124,11 @@
                     </ListBox.ItemTemplate>
                 </ListBox>
 
-                <TextBlock Grid.Row="4" Text="{Binding AgentPanel.StatusText}" Foreground="Gray" Margin="0,8,0,0" TextWrapping="Wrap" />
+                <StackPanel Grid.Row="4" Margin="0,8,0,0">
+                    <TextBlock Text="{Binding AgentPanel.StatusText}" Foreground="Gray" TextWrapping="Wrap" />
+                    <TextBlock Text="Meeting participant mode (agent joins the meeting) is EXPERIMENTAL and not implemented — see docs/MEETING_JOIN_MODE.md."
+                               Foreground="DarkGoldenrod" FontStyle="Italic" Margin="0,4,0,0" TextWrapping="Wrap" />
+                </StackPanel>
             </Grid>
         </TabItem>
 
