@@ -10,12 +10,18 @@ public partial class MainWindow : Window
     public MainWindowViewModel Session { get; } = new();
     public SettingsViewModel Settings { get; } = new();
     public SpeakerManagementViewModel SpeakerPanel { get; } = new();
+    public AgentPanelViewModel AgentPanel { get; }
 
     public MainWindow()
     {
+        AgentPanel = new AgentPanelViewModel(currentTranscriptPath: () => Session.CurrentJsonlPath);
         InitializeComponent();
         DataContext = this;
-        Closing += async (_, _) => await Session.ShutdownAsync();
+        Closing += async (_, _) =>
+        {
+            await AgentPanel.ShutdownAsync();
+            await Session.ShutdownAsync();
+        };
     }
 
     private void BrowseOutputFolder_Click(object sender, RoutedEventArgs e)

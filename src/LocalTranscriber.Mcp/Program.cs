@@ -17,6 +17,7 @@ builder.Services.AddSingleton<TranscriberService>();
 builder.Services
     .AddMcpServer()
     .WithStdioServerTransport()
-    .WithTools<LocalTranscriberTools>();
+    .WithTools<LocalTranscriberTools>()
+    .WithTools<AgentTools>();
 
 await builder.Build().RunAsync();

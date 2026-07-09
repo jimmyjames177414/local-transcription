@@ -50,6 +50,72 @@
             </Grid>
         </TabItem>
 
+        <TabItem Header="Agent">
+            <Grid Margin="12">
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="*" />
+                    <RowDefinition Height="Auto" />
+                </Grid.RowDefinitions>
+
+                <StackPanel Grid.Row="0" Orientation="Horizontal" Margin="0,0,0,8">
+                    <CheckBox Content="Enable agent" IsChecked="{Binding AgentPanel.AgentEnabled}" VerticalAlignment="Center" />
+                    <TextBlock Text="Mode:" Margin="18,0,6,0" VerticalAlignment="Center" />
+                    <ComboBox Width="150" ItemsSource="{Binding AgentPanel.Modes}" SelectedItem="{Binding AgentPanel.SelectedMode}" />
+                    <TextBlock Text="Provider:" Margin="18,0,6,0" VerticalAlignment="Center" />
+                    <ComboBox Width="120" ItemsSource="{Binding AgentPanel.Providers}" SelectedItem="{Binding AgentPanel.SelectedProvider}" />
+                </StackPanel>
+
+                <Grid Grid.Row="1" Margin="0,0,0,8">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="Auto" />
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="Auto" />
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="Auto" />
+                        <ColumnDefinition Width="Auto" />
+                    </Grid.ColumnDefinitions>
+                    <TextBlock Grid.Column="0" Text="Context folder:" VerticalAlignment="Center" Margin="0,0,6,0" />
+                    <TextBox Grid.Column="1" Text="{Binding AgentPanel.ContextFolder, UpdateSourceTrigger=PropertyChanged}" VerticalAlignment="Center" />
+                    <TextBlock Grid.Column="2" Text="Output folder:" VerticalAlignment="Center" Margin="12,0,6,0" />
+                    <TextBox Grid.Column="3" Text="{Binding AgentPanel.OutputFolder, UpdateSourceTrigger=PropertyChanged}" VerticalAlignment="Center" />
+                    <Button Grid.Column="4" Content="Open context" Margin="8,0,0,0" Padding="8,2" Command="{Binding AgentPanel.OpenContextFolderCommand}" />
+                    <Button Grid.Column="5" Content="Open output" Margin="8,0,0,0" Padding="8,2" Command="{Binding AgentPanel.OpenOutputFolderCommand}" />
+                </Grid>
+
+                <StackPanel Grid.Row="2" Orientation="Horizontal" Margin="0,0,0,8">
+                    <Button Content="Start Agent" Width="110" Command="{Binding AgentPanel.StartCommand}" />
+                    <Button Content="Stop Agent" Width="110" Margin="8,0,0,0" Command="{Binding AgentPanel.StopCommand}" />
+                    <Button Content="Dismiss" Width="90" Margin="18,0,0,0" Command="{Binding AgentPanel.DismissCommand}" />
+                    <Button Content="Copy" Width="90" Margin="8,0,0,0" Command="{Binding AgentPanel.CopyCommand}" />
+                </StackPanel>
+
+                <ListBox Grid.Row="3"
+                         ItemsSource="{Binding AgentPanel.Suggestions}"
+                         SelectedItem="{Binding AgentPanel.SelectedSuggestion}"
+                         HorizontalContentAlignment="Stretch"
+                         ScrollViewer.HorizontalScrollBarVisibility="Disabled">
+                    <ListBox.ItemTemplate>
+                        <DataTemplate>
+                            <StackPanel Margin="0,2">
+                                <StackPanel Orientation="Horizontal">
+                                    <TextBlock Text="{Binding Time}" Foreground="Gray" />
+                                    <TextBlock Text="{Binding Priority}" FontWeight="Bold" Margin="10,0,0,0" />
+                                    <TextBlock Text="{Binding Type}" Foreground="DarkSlateBlue" Margin="10,0,0,0" />
+                                    <TextBlock Text="{Binding Title}" FontWeight="SemiBold" Margin="10,0,0,0" />
+                                </StackPanel>
+                                <TextBlock Text="{Binding Message}" TextWrapping="Wrap" Foreground="#444444" />
+                            </StackPanel>
+                        </DataTemplate>
+                    </ListBox.ItemTemplate>
+                </ListBox>
+
+                <TextBlock Grid.Row="4" Text="{Binding AgentPanel.StatusText}" Foreground="Gray" Margin="0,8,0,0" TextWrapping="Wrap" />
+            </Grid>
+        </TabItem>
+
         <TabItem Header="Speakers">
             <Grid Margin="12">
                 <Grid.RowDefinitions>

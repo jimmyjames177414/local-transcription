@@ -63,6 +63,9 @@ public sealed class MainWindowViewModel : ObservableObject
         private set => SetProperty(ref _sessionId, value);
     }
 
+    /// <summary>Jsonl path of the active session; the Agent panel tails this.</summary>
+    public string? CurrentJsonlPath { get; private set; }
+
     public string OutputFolder
     {
         get => _outputFolder;
@@ -111,6 +114,7 @@ public sealed class MainWindowViewModel : ObservableObject
 
             await _engine.StartAsync(options);
             SessionId = options.SessionId;
+            CurrentJsonlPath = options.OutputJsonlPath;
             SetState(TranscriptionSessionState.Recording);
 
             _streamCts = new CancellationTokenSource();
