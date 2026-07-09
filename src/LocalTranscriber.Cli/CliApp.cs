@@ -29,6 +29,8 @@ public static class CliApp
         root.AddCommand(BuildConfigCommand(configService));
         root.AddCommand(AudioCommands.Build());
         root.AddCommand(TranscribeCommand.Build(configService));
+        root.AddCommand(AgentCommands.Build(configService));
+        root.AddCommand(ContextCommands.Build(configService));
 
         return root;
     }

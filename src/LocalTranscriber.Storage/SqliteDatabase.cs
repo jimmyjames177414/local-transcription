@@ -103,5 +103,31 @@ public sealed class SqliteDatabase
 
         CREATE INDEX IF NOT EXISTS idx_transcript_events_session ON transcript_events(session_id);
         CREATE INDEX IF NOT EXISTS idx_speaker_embeddings_speaker ON speaker_embeddings(speaker_id);
+
+        CREATE TABLE IF NOT EXISTS agent_suggestions (
+            id TEXT PRIMARY KEY,
+            session_id TEXT,
+            created_at TEXT NOT NULL,
+            suggestion_type TEXT NOT NULL,
+            priority TEXT NOT NULL,
+            title TEXT NOT NULL,
+            message TEXT NOT NULL,
+            related_speaker TEXT,
+            related_transcript_event_id TEXT,
+            source TEXT NOT NULL,
+            confidence REAL,
+            is_dismissed INTEGER NOT NULL DEFAULT 0
+        );
+
+        CREATE TABLE IF NOT EXISTS agent_state (
+            id TEXT PRIMARY KEY,
+            session_id TEXT,
+            updated_at TEXT NOT NULL,
+            running_summary TEXT,
+            last_transcript_event_id TEXT,
+            last_transcript_timestamp TEXT
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_agent_suggestions_created ON agent_suggestions(created_at);
         """;
 }
