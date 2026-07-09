@@ -64,6 +64,21 @@ public static class SessionCommands
                 stop.Cancel();
             };
 
+            // Exit the console loop when another process stops the session via IPC.
+            _ = Task.Run(async () =>
+            {
+                while (!stop.IsCancellationRequested)
+                {
+                    var s = await engine.GetStatusAsync();
+                    if (s.State is TranscriptionSessionState.Stopped or TranscriptionSessionState.Faulted)
+                    {
+                        stop.Cancel();
+                        return;
+                    }
+                    await Task.Delay(1000);
+                }
+            });
+
             try
             {
                 await foreach (var e in engine.StreamEventsAsync(stop.Token))
@@ -75,7 +90,6 @@ public static class SessionCommands
             {
             }
 
-            // Also exit when another process stopped the session via IPC.
             Console.WriteLine("Stopping (waiting for buffered audio to finish transcribing)...");
             await engine.StopAsync();
             var status = await engine.GetStatusAsync();

@@ -10,7 +10,7 @@ public sealed class ToolCallLogger
 
     public ToolCallLogger(string? logPath = null)
     {
-        _logPath = logPath ?? Path.Combine("output", "logs", "mcp-tool-calls.log");
+        _logPath = logPath ?? Path.Combine(LocalTranscriber.Shared.AppPaths.LogsDir, "mcp-tool-calls.log");
         string? dir = Path.GetDirectoryName(Path.GetFullPath(_logPath));
         if (!string.IsNullOrEmpty(dir))
         {

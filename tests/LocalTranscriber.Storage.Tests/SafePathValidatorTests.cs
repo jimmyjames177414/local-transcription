@@ -40,4 +40,32 @@ public class SafePathValidatorTests
         Assert.False(SafePathValidator.IsInsideRoot(Root, ""));
         Assert.False(SafePathValidator.IsInsideRoot("", "x.txt"));
     }
+
+    [Fact]
+    public void MidPathTraversal_ThatStaysInside_IsAllowed()
+    {
+        Assert.True(SafePathValidator.IsInsideRoot(Root, Path.Combine("sub", "..", "file.txt")));
+    }
+
+    [Fact]
+    public void SiblingFolderWithSimilarPrefix_IsBlocked()
+    {
+        // /tmp/lt-safe-root vs /tmp/lt-safe-root-evil
+        Assert.False(SafePathValidator.IsInsideRoot(Root, Root + "-evil" + Path.DirectorySeparatorChar + "file.txt"));
+    }
+
+    [Fact]
+    public void OtherDriveAbsolutePath_IsBlocked()
+    {
+        if (OperatingSystem.IsWindows())
+        {
+            Assert.False(SafePathValidator.IsInsideRoot(Root, @"Z:\outside\file.txt"));
+        }
+    }
+
+    [Fact]
+    public void RootItself_IsAllowed()
+    {
+        Assert.True(SafePathValidator.IsInsideRoot(Root, Root));
+    }
 }

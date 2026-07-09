@@ -16,14 +16,14 @@ public sealed class ConfigService
 
     public ConfigService(string? configPath = null)
     {
-        ConfigPath = configPath ?? Path.Combine("output", "config.json");
+        ConfigPath = configPath ?? AppPaths.ConfigPath;
     }
 
     public AppConfig Load()
     {
         if (!File.Exists(ConfigPath))
         {
-            return new AppConfig();
+            return AppPaths.CreateDefaultConfig();
         }
 
         string json = File.ReadAllText(ConfigPath);

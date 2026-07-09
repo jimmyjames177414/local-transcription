@@ -16,7 +16,7 @@ public class ConfigServiceTests : IDisposable
     {
         var service = new ConfigService(Path.Combine(_dir, "config.json"));
         var config = service.Load();
-        Assert.Equal("output/transcripts", config.TranscriptFolder);
+        Assert.Equal(Path.Combine("output", "transcripts"), config.TranscriptFolder);
         Assert.Equal(0.72, config.SpeakerMatchThreshold);
     }
 

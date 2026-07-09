@@ -34,4 +34,20 @@ Lower layers never reference upper layers.
 
 ## Engine
 
-`ITranscriptionEngine` exposes Start/Stop/Pause/Resume/GetStatus and an event stream (`IAsyncEnumerable<TranscriptEvent>`). `FakeTranscriptionEngine` emits synthetic events on a timer so front-ends integrate against a stable API before real audio/AI lands.
+`ITranscriptionEngine` exposes Start/Stop/Pause/Resume/GetStatus and an event stream (`IAsyncEnumerable<TranscriptEvent>`). Two implementations:
+
+- `FakeTranscriptionEngine` — synthetic events on a timer; used for tests and MCP demos.
+- `RealTranscriptionEngine` — the real pipeline:
+
+```text
+mic chunks    -> AudioWindowBuffer -> whisper.cpp -> "Me" events ----------------┐
+                                                                                 ├-> .txt + .jsonl + SQLite + stream
+system chunks -> AudioWindowBuffer -> diarize -> whisper.cpp -> align -> speaker ┘
+                                                          memory (cosine match)
+```
+
+Mic and system audio stay separate end to end. Windows are `chunkSeconds` long with `overlapMs` carry; silent windows are skipped (whisper hallucinates on silence). Unknown voices get session-stable labels via `SessionSpeakerRegistry` (embedding similarity); known voices come from SQLite speaker memory with confident/uncertain thresholds.
+
+## Cross-process control
+
+The process hosting a session (WPF app or `cli start`) runs `EngineIpcServer` on the named pipe `localtranscriber-control`. Other local processes (CLI `status/stop/pause/resume`) connect as clients. Local machine only, no network.

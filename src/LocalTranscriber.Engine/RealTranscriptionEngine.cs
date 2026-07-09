@@ -146,6 +146,7 @@ public sealed class RealTranscriptionEngine : ITranscriptionEngine, IAsyncDispos
 
             _processor = Task.Run(() => ProcessWindowsAsync(_cts.Token), CancellationToken.None);
             _state = TranscriptionSessionState.Recording;
+            AppLog.Info("engine", $"Session {options.SessionId} started (mic: {options.EnableMicrophone}, system: {options.EnableSystemAudio}, whisper: {options.WhisperModelPath}, chunk: {options.ChunkSeconds}s)");
         }
         finally
         {
@@ -408,6 +409,7 @@ public sealed class RealTranscriptionEngine : ITranscriptionEngine, IAsyncDispos
 
     private void AddWarning(string warning)
     {
+        AppLog.Warn("engine", warning);
         lock (_warnings)
         {
             _warnings.Add($"{DateTime.Now:HH:mm:ss} {warning}");
@@ -476,6 +478,8 @@ public sealed class RealTranscriptionEngine : ITranscriptionEngine, IAsyncDispos
                 await _sessionStore.EndAsync(_options.SessionId, DateTimeOffset.Now,
                     _state == TranscriptionSessionState.Faulted ? "faulted" : "stopped", cancellationToken).ConfigureAwait(false);
             }
+
+            AppLog.Info("engine", $"Session {_options?.SessionId} stopped ({Interlocked.Read(ref _eventCount)} events, state {_state})");
         }
         finally
         {
