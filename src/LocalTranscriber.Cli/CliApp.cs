@@ -7,25 +7,28 @@ namespace LocalTranscriber.Cli;
 
 public static class CliApp
 {
-    public static RootCommand BuildRootCommand(ConfigService? configService = null, JsonSpeakerStore? speakerStore = null)
+    public static RootCommand BuildRootCommand(ConfigService? configService = null)
     {
         configService ??= new ConfigService();
-        speakerStore ??= new JsonSpeakerStore();
 
         var root = new RootCommand("LocalTranscriber — local-only transcription. No cloud, no API keys.");
 
         root.AddCommand(BuildStatusCommand());
-        root.AddCommand(BuildFakeSessionCommand());
-        root.AddCommand(BuildStartFakeCommand());
+        root.AddCommand(BuildFakeSessionCommand(configService));
+        root.AddCommand(BuildStartFakeCommand(configService));
         root.AddCommand(BuildTailCommand());
         root.AddCommand(BuildReadCommand());
-        root.AddCommand(BuildSpeakersCommand(speakerStore));
-        root.AddCommand(BuildRenameSpeakerCommand(speakerStore));
-        root.AddCommand(BuildForgetSpeakerCommand(speakerStore));
+        root.AddCommand(BuildSessionsCommand(configService));
+        root.AddCommand(BuildSpeakersCommand(configService));
+        root.AddCommand(BuildRenameSpeakerCommand(configService));
+        root.AddCommand(BuildForgetSpeakerCommand(configService));
         root.AddCommand(BuildConfigCommand(configService));
 
         return root;
     }
+
+    private static SqliteDatabase OpenDatabase(ConfigService configService)
+        => new(configService.Load().DatabasePath);
 
     private static Command BuildStatusCommand()
     {
@@ -39,7 +42,7 @@ public static class CliApp
         return cmd;
     }
 
-    private static Command BuildFakeSessionCommand()
+    private static Command BuildFakeSessionCommand(ConfigService configService)
     {
         var outputOpt = new Option<string>("--output", () => "./output/transcripts/test.txt", "Output .txt path (.jsonl written next to it).");
         var linesOpt = new Option<int>("--lines", () => 10, "Number of fake lines to write.");
@@ -56,7 +59,8 @@ public static class CliApp
                 FakeEventIntervalMs = 10
             };
 
-            await using var engine = new FakeTranscriptionEngine();
+            var db = OpenDatabase(configService);
+            await using var engine = new FakeTranscriptionEngine(new SqliteSessionStore(db), new SqliteTranscriptEventStore(db));
             await engine.StartAsync(options);
 
             long target = lines;
@@ -78,7 +82,7 @@ public static class CliApp
         return cmd;
     }
 
-    private static Command BuildStartFakeCommand()
+    private static Command BuildStartFakeCommand(ConfigService configService)
     {
         var outputOpt = new Option<string>("--output", () => "./output/transcripts/fake.txt", "Output .txt path (.jsonl written next to it).");
         var cmd = new Command("start-fake", "Run a fake live session in this process until Ctrl+C.");
@@ -92,7 +96,8 @@ public static class CliApp
                 OutputJsonlPath = jsonlPath
             };
 
-            await using var engine = new FakeTranscriptionEngine();
+            var db = OpenDatabase(configService);
+            await using var engine = new FakeTranscriptionEngine(new SqliteSessionStore(db), new SqliteTranscriptEventStore(db));
             await engine.StartAsync(options);
             Console.WriteLine($"Fake session started (session {options.SessionId}).");
             Console.WriteLine($"Writing to {output} — press Ctrl+C to stop.");
@@ -171,12 +176,35 @@ public static class CliApp
         return cmd;
     }
 
-    private static Command BuildSpeakersCommand(JsonSpeakerStore store)
+    private static Command BuildSessionsCommand(ConfigService configService)
     {
-        var cmd = new Command("speakers", "List known speakers (JSON stub store until SQLite phase).");
-        cmd.SetHandler(() =>
+        var cmd = new Command("sessions", "List recorded sessions.");
+        cmd.SetHandler(async () =>
         {
-            var speakers = store.List();
+            var store = new SqliteSessionStore(OpenDatabase(configService));
+            var sessions = await store.ListAsync();
+            if (sessions.Count == 0)
+            {
+                Console.WriteLine("No sessions yet.");
+                return;
+            }
+
+            foreach (var s in sessions)
+            {
+                string ended = s.EndedAt?.ToLocalTime().ToString("yyyy-MM-dd HH:mm:ss") ?? "-";
+                Console.WriteLine($"{s.Id}  {s.StartedAt.ToLocalTime():yyyy-MM-dd HH:mm:ss}  ended: {ended}  [{s.Status}]  {s.OutputTextPath}");
+            }
+        });
+        return cmd;
+    }
+
+    private static Command BuildSpeakersCommand(ConfigService configService)
+    {
+        var cmd = new Command("speakers", "List known speakers.");
+        cmd.SetHandler(async () =>
+        {
+            var store = new SqliteKnownSpeakerStore(OpenDatabase(configService));
+            var speakers = await store.ListAsync();
             if (speakers.Count == 0)
             {
                 Console.WriteLine("No known speakers yet.");
@@ -185,35 +213,38 @@ public static class CliApp
 
             foreach (var s in speakers)
             {
-                Console.WriteLine($"{s.DisplayName} (id: {s.Id})");
+                string lastSeen = s.LastSeenAt?.ToLocalTime().ToString("yyyy-MM-dd HH:mm") ?? "never";
+                Console.WriteLine($"{s.DisplayName}  (samples: {s.SampleCount}, last seen: {lastSeen}, id: {s.Id})");
             }
         });
         return cmd;
     }
 
-    private static Command BuildRenameSpeakerCommand(JsonSpeakerStore store)
+    private static Command BuildRenameSpeakerCommand(ConfigService configService)
     {
         var fromOpt = new Option<string>("--from", "Current speaker name.") { IsRequired = true };
         var toOpt = new Option<string>("--to", "New speaker name.") { IsRequired = true };
-        var cmd = new Command("rename-speaker", "Rename a speaker.");
+        var cmd = new Command("rename-speaker", "Rename a speaker (creates the name if unknown).");
         cmd.AddOption(fromOpt);
         cmd.AddOption(toOpt);
-        cmd.SetHandler((string from, string to) =>
+        cmd.SetHandler(async (string from, string to) =>
         {
-            store.Rename(from, to);
+            var store = new SqliteKnownSpeakerStore(OpenDatabase(configService));
+            await store.RenameAsync(from, to);
             Console.WriteLine($"Renamed '{from}' to '{to}'.");
         }, fromOpt, toOpt);
         return cmd;
     }
 
-    private static Command BuildForgetSpeakerCommand(JsonSpeakerStore store)
+    private static Command BuildForgetSpeakerCommand(ConfigService configService)
     {
         var nameOpt = new Option<string>("--name", "Speaker name to forget.") { IsRequired = true };
-        var cmd = new Command("forget-speaker", "Forget a speaker.");
+        var cmd = new Command("forget-speaker", "Forget a speaker and its embeddings.");
         cmd.AddOption(nameOpt);
-        cmd.SetHandler((string name) =>
+        cmd.SetHandler(async (string name) =>
         {
-            if (store.Forget(name))
+            var store = new SqliteKnownSpeakerStore(OpenDatabase(configService));
+            if (await store.ForgetAsync(name))
             {
                 Console.WriteLine($"Forgot speaker '{name}'.");
             }

@@ -6,29 +6,35 @@ namespace LocalTranscriber.App.ViewModels;
 
 public sealed class SpeakerManagementViewModel : ObservableObject
 {
-    private readonly JsonSpeakerStore _store;
-    private JsonSpeakerStore.StoredSpeaker? _selectedSpeaker;
+    private readonly IKnownSpeakerStore _store;
+    private KnownSpeaker? _selectedSpeaker;
     private string _renameTo = "";
     private string _statusText = "";
 
-    public SpeakerManagementViewModel(JsonSpeakerStore? store = null)
+    public SpeakerManagementViewModel(IKnownSpeakerStore? store = null, ConfigService? configService = null)
     {
-        _store = store ?? new JsonSpeakerStore();
-        RefreshCommand = new RelayCommand(Refresh);
-        RenameCommand = new RelayCommand(Rename, () => SelectedSpeaker is not null && !string.IsNullOrWhiteSpace(RenameTo));
-        ForgetCommand = new RelayCommand(Forget, () => SelectedSpeaker is not null);
-        Refresh();
+        if (store is null)
+        {
+            var config = (configService ?? new ConfigService()).Load();
+            store = new SqliteKnownSpeakerStore(new SqliteDatabase(config.DatabasePath));
+        }
+
+        _store = store;
+        RefreshCommand = new AsyncRelayCommand(RefreshAsync);
+        RenameCommand = new AsyncRelayCommand(RenameAsync, () => SelectedSpeaker is not null && !string.IsNullOrWhiteSpace(RenameTo));
+        ForgetCommand = new AsyncRelayCommand(ForgetAsync, () => SelectedSpeaker is not null);
+        _ = RefreshAsync();
     }
 
-    public ObservableCollection<JsonSpeakerStore.StoredSpeaker> Speakers { get; } = new();
+    public ObservableCollection<KnownSpeaker> Speakers { get; } = new();
 
-    public RelayCommand RefreshCommand { get; }
-    public RelayCommand RenameCommand { get; }
-    public RelayCommand ForgetCommand { get; }
+    public AsyncRelayCommand RefreshCommand { get; }
+    public AsyncRelayCommand RenameCommand { get; }
+    public AsyncRelayCommand ForgetCommand { get; }
 
-    public string Note => "Voice matching arrives in a later phase. For now this list only stores names.";
+    public string Note => "Voice matching arrives in a later phase. Names and (later) voice embeddings are stored locally in SQLite.";
 
-    public JsonSpeakerStore.StoredSpeaker? SelectedSpeaker
+    public KnownSpeaker? SelectedSpeaker
     {
         get => _selectedSpeaker;
         set
@@ -55,37 +61,45 @@ public sealed class SpeakerManagementViewModel : ObservableObject
         private set => SetProperty(ref _statusText, value);
     }
 
-    private void Refresh()
+    private async Task RefreshAsync()
     {
-        Speakers.Clear();
-        foreach (var s in _store.List())
+        try
         {
-            Speakers.Add(s);
+            var speakers = await _store.ListAsync();
+            Speakers.Clear();
+            foreach (var s in speakers)
+            {
+                Speakers.Add(s);
+            }
+        }
+        catch (Exception ex)
+        {
+            StatusText = $"Failed to load speakers: {ex.Message}";
         }
     }
 
-    private void Rename()
+    private async Task RenameAsync()
     {
         if (SelectedSpeaker is null)
         {
             return;
         }
 
-        _store.Rename(SelectedSpeaker.DisplayName, RenameTo);
+        await _store.RenameAsync(SelectedSpeaker.DisplayName, RenameTo);
         StatusText = $"Renamed '{SelectedSpeaker.DisplayName}' to '{RenameTo}'.";
         RenameTo = "";
-        Refresh();
+        await RefreshAsync();
     }
 
-    private void Forget()
+    private async Task ForgetAsync()
     {
         if (SelectedSpeaker is null)
         {
             return;
         }
 
-        _store.Forget(SelectedSpeaker.DisplayName);
+        await _store.ForgetAsync(SelectedSpeaker.DisplayName);
         StatusText = $"Forgot '{SelectedSpeaker.DisplayName}'.";
-        Refresh();
+        await RefreshAsync();
     }
 }

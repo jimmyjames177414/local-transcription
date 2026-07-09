@@ -22,10 +22,15 @@ public sealed class MainWindowViewModel : ObservableObject
 
     public MainWindowViewModel(ITranscriptionEngine? engine = null, ConfigService? configService = null)
     {
-        _engine = engine ?? new FakeTranscriptionEngine();
-        _uiContext = SynchronizationContext.Current;
-
         var config = (configService ?? new ConfigService()).Load();
+        if (engine is null)
+        {
+            var db = new SqliteDatabase(config.DatabasePath);
+            engine = new FakeTranscriptionEngine(new SqliteSessionStore(db), new SqliteTranscriptEventStore(db));
+        }
+
+        _engine = engine;
+        _uiContext = SynchronizationContext.Current;
         _outputFolder = config.TranscriptFolder;
 
         StartCommand = new AsyncRelayCommand(StartAsync, () => _state is TranscriptionSessionState.NotStarted or TranscriptionSessionState.Stopped or TranscriptionSessionState.Faulted);

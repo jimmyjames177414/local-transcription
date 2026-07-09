@@ -24,6 +24,14 @@ public sealed class FakeTranscriptionEngine : ITranscriptionEngine, IAsyncDispos
 
     private readonly SemaphoreSlim _control = new(1, 1);
     private readonly Channel<TranscriptEvent> _events = Channel.CreateUnbounded<TranscriptEvent>();
+    private readonly ISessionStore? _sessionStore;
+    private readonly ITranscriptEventStore? _eventStore;
+
+    public FakeTranscriptionEngine(ISessionStore? sessionStore = null, ITranscriptEventStore? eventStore = null)
+    {
+        _sessionStore = sessionStore;
+        _eventStore = eventStore;
+    }
 
     private TranscriptionSessionOptions? _options;
     private CancellationTokenSource? _cts;
@@ -59,6 +67,14 @@ public sealed class FakeTranscriptionEngine : ITranscriptionEngine, IAsyncDispos
 
             _cts = new CancellationTokenSource();
             _startedAt = DateTimeOffset.Now;
+
+            if (_sessionStore is not null)
+            {
+                await _sessionStore.CreateAsync(new SessionRecord(
+                    options.SessionId, _startedAt.Value, null,
+                    options.OutputTextPath, options.OutputJsonlPath, "recording"), cancellationToken).ConfigureAwait(false);
+            }
+
             _loop = Task.Run(() => RunLoopAsync(options, _cts.Token), CancellationToken.None);
             _state = TranscriptionSessionState.Recording;
         }
@@ -95,6 +111,11 @@ public sealed class FakeTranscriptionEngine : ITranscriptionEngine, IAsyncDispos
                 {
                     await writer.WriteAsync(e, cancellationToken).ConfigureAwait(false);
                     await writer.FlushAsync(cancellationToken).ConfigureAwait(false);
+                }
+
+                if (_eventStore is not null)
+                {
+                    await _eventStore.InsertAsync(e, cancellationToken).ConfigureAwait(false);
                 }
 
                 _lastEventAt = e.Timestamp;
@@ -179,6 +200,12 @@ public sealed class FakeTranscriptionEngine : ITranscriptionEngine, IAsyncDispos
             if (_state != TranscriptionSessionState.Faulted)
             {
                 _state = TranscriptionSessionState.Stopped;
+            }
+
+            if (_sessionStore is not null && _options is not null)
+            {
+                await _sessionStore.EndAsync(_options.SessionId, DateTimeOffset.Now,
+                    _state == TranscriptionSessionState.Faulted ? "faulted" : "stopped", cancellationToken).ConfigureAwait(false);
             }
         }
         finally

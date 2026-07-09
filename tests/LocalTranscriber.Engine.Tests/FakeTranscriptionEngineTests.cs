@@ -104,7 +104,9 @@ public class FakeTranscriptionEngineTests : IAsyncLifetime
         var paused = await engine.GetStatusAsync();
         Assert.Equal(TranscriptionSessionState.Paused, paused.State);
 
-        long countAtPause = paused.EventCount;
+        // One event may already be in flight when pause lands; let it settle first.
+        await Task.Delay(100);
+        long countAtPause = (await engine.GetStatusAsync()).EventCount;
         await Task.Delay(200);
         var stillPaused = await engine.GetStatusAsync();
         Assert.Equal(countAtPause, stillPaused.EventCount);
