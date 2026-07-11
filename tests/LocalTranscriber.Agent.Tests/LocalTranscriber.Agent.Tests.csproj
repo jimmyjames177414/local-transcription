@@ -22,6 +22,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\..\src\LocalTranscriber.Agent\LocalTranscriber.Agent.csproj" />
+    <ProjectReference Include="..\..\src\LocalTranscriber.Context\LocalTranscriber.Context.csproj" />
   </ItemGroup>
 
 </Project>

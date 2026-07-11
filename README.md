@@ -2,9 +2,9 @@
 
 Local-only Windows transcription app **with an optional live meeting AI sidecar**. Captures microphone and system audio, transcribes fully offline (whisper.cpp), labels and remembers speakers (sherpa-onnx + SQLite), writes `.txt` and `.jsonl` transcripts, and exposes a WPF UI, a CLI, and an MCP server.
 
-The agent layer (optional, off by default) tails the live transcript and produces private suggestions — risks, action items, decisions, contradictions — via a fake offline provider or OpenAI text/realtime models, with local context packs and private TTS voice. See `docs/AGENT.md`.
+The agent layer (optional, off by default) is a real-time voice conversation with the AI during a meeting — you talk, it replies in a natural OpenAI voice, grounded in your local context packs and the live transcript. See `docs/AGENT.md` and `docs/REALTIME_PROVIDER.md`.
 
-**Hard rules:** transcription never uses the cloud; the agent is opt-in; no audio ever leaves the machine; no hidden uploads. Buildable from VS Code terminal only — Visual Studio not required.
+**Hard rules:** transcription is always local and never uses the cloud; the agent is opt-in and off by default; real-time voice is opt-in and sends audio only when enabled (the default `hybrid` mode transcribes your speech locally and sends text only); no hidden uploads. Buildable from VS Code terminal only — Visual Studio not required.
 
 ## Requirements
 

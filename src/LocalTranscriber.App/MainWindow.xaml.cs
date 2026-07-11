@@ -40,4 +40,10 @@ public partial class MainWindow : Window
             box.ScrollToEnd();
         }
     }
+
+    private void HoldToTalk_Down(object sender, System.Windows.Input.MouseButtonEventArgs e)
+        => AgentPanel.VoicePushToTalkDown();
+
+    private void HoldToTalk_Up(object sender, System.Windows.Input.MouseButtonEventArgs e)
+        => AgentPanel.VoicePushToTalkUp();
 }

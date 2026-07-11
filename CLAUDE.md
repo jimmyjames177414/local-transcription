@@ -16,10 +16,12 @@ OpenAI text/realtime models, with local context packs and private TTS. See `docs
 Stack: C# / .NET 8, WPF, NAudio/WASAPI (capture), whisper.cpp (transcription),
 sherpa-onnx (diarization + speaker ID), SQLite (speaker memory + session metadata).
 
-**Hard rules:** transcription never uses the cloud; the agent is opt-in; no audio ever leaves
-the machine; no hidden uploads. Buildable from the VS Code terminal only — Visual Studio not
-required. The WPF UI, CLI, and MCP server must all call the same shared `Engine` — never
-duplicate transcription logic.
+**Hard rules:** transcription is always local and never uses the cloud; the agent is opt-in and
+off by default; the real-time voice conversation is opt-in and sends audio only when enabled
+(the default `hybrid` mode transcribes speech locally and sends text only; `pushToTalk`/
+`continuous` stream the microphone only with `sendAudio=true`, never meeting audio); no hidden
+uploads. Buildable from the VS Code terminal only — Visual Studio not required. The WPF UI, CLI,
+and MCP server must all call the same shared `Engine` — never duplicate transcription logic.
 
 ## Solution layout (`src/`)
 

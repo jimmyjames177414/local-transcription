@@ -3,6 +3,7 @@
   <ItemGroup>
     <ProjectReference Include="..\LocalTranscriber.Engine\LocalTranscriber.Engine.csproj" />
     <ProjectReference Include="..\LocalTranscriber.Agent\LocalTranscriber.Agent.csproj" />
+    <ProjectReference Include="..\LocalTranscriber.Voice\LocalTranscriber.Voice.csproj" />
   </ItemGroup>
 
   <PropertyGroup>

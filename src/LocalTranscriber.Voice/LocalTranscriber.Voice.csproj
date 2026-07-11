@@ -1,0 +1,22 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <ItemGroup>
+    <ProjectReference Include="..\LocalTranscriber.Shared\LocalTranscriber.Shared.csproj" />
+    <ProjectReference Include="..\LocalTranscriber.Agent\LocalTranscriber.Agent.csproj" />
+    <ProjectReference Include="..\LocalTranscriber.Audio\LocalTranscriber.Audio.csproj" />
+    <ProjectReference Include="..\LocalTranscriber.AI\LocalTranscriber.AI.csproj" />
+    <ProjectReference Include="..\LocalTranscriber.Context\LocalTranscriber.Context.csproj" />
+    <ProjectReference Include="..\LocalTranscriber.Storage\LocalTranscriber.Storage.csproj" />
+  </ItemGroup>
+
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="LocalTranscriber.Voice.Tests" />
+  </ItemGroup>
+
+</Project>

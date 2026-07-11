@@ -62,13 +62,36 @@
 
                 <StackPanel Grid.Row="0" Orientation="Horizontal" Margin="0,0,0,8">
                     <CheckBox Content="Enable agent" IsChecked="{Binding AgentPanel.AgentEnabled}" VerticalAlignment="Center" />
-                    <TextBlock Text="Mode:" Margin="18,0,6,0" VerticalAlignment="Center" />
-                    <ComboBox Width="150" ItemsSource="{Binding AgentPanel.Modes}" SelectedItem="{Binding AgentPanel.SelectedMode}" />
-                    <TextBlock Text="Provider:" Margin="18,0,6,0" VerticalAlignment="Center" />
-                    <ComboBox Width="120" ItemsSource="{Binding AgentPanel.Providers}" SelectedItem="{Binding AgentPanel.SelectedProvider}" />
+                    <TextBlock Text="Voice mode:" Margin="18,0,6,0" VerticalAlignment="Center" />
+                    <ComboBox Width="120" ItemsSource="{Binding AgentPanel.VoiceModes}" SelectedItem="{Binding AgentPanel.SelectedVoiceMode}" />
+                    <TextBlock Text="Voice:" Margin="18,0,6,0" VerticalAlignment="Center" />
+                    <ComboBox Width="100" ItemsSource="{Binding AgentPanel.Voices}" SelectedItem="{Binding AgentPanel.VoiceName}" VerticalAlignment="Center" />
+                    <Button Content="Start voice" Width="90" Margin="18,0,0,0" Command="{Binding AgentPanel.StartVoiceCommand}" />
+                    <Button Content="Stop voice" Width="90" Margin="8,0,0,0" Command="{Binding AgentPanel.StopVoiceCommand}" />
+                    <Button x:Name="HoldToTalkButton" Content="Hold to talk" Width="110" Margin="18,0,0,0"
+                            PreviewMouseLeftButtonDown="HoldToTalk_Down" PreviewMouseLeftButtonUp="HoldToTalk_Up" />
                 </StackPanel>
 
-                <Grid Grid.Row="1" Margin="0,0,0,8">
+                <StackPanel Grid.Row="1" Margin="0,0,0,8">
+                    <WrapPanel Orientation="Horizontal">
+                        <TextBlock Text="Voice mic:" VerticalAlignment="Center" Margin="0,0,6,4" />
+                        <ComboBox Width="220" ItemsSource="{Binding AgentPanel.InputDevices}"
+                                  DisplayMemberPath="Name" SelectedValuePath="Id"
+                                  SelectedValue="{Binding AgentPanel.SelectedInputDeviceId}" VerticalAlignment="Center" Margin="0,0,0,4" />
+                        <TextBlock Text="Voice output:" VerticalAlignment="Center" Margin="14,0,6,4" />
+                        <ComboBox Width="220" ItemsSource="{Binding AgentPanel.OutputDevices}"
+                                  DisplayMemberPath="Name" SelectedValuePath="Id"
+                                  SelectedValue="{Binding AgentPanel.SelectedOutputDeviceId}" VerticalAlignment="Center" Margin="0,0,0,4" />
+                        <Button Content="Refresh" Margin="8,0,0,4" Padding="10,2" Command="{Binding AgentPanel.RefreshInputDevicesCommand}" />
+                        <CheckBox Content="Speak replies" IsChecked="{Binding AgentPanel.SpeakReplies}"
+                                  VerticalAlignment="Center" Margin="14,0,0,4"
+                                  ToolTip="Off = captions only (no playback). Safest when a Bluetooth headset is the mic." />
+                    </WrapPanel>
+                    <TextBlock Text="Bluetooth tip: to stop the headset losing its mic, do ANY one — use a USB/built-in Voice mic, route Voice output to speakers, or turn Speak replies off."
+                               Foreground="Gray" FontStyle="Italic" TextWrapping="Wrap" Margin="0,2,0,0" />
+                </StackPanel>
+
+                <Grid Grid.Row="2" Margin="0,0,0,8">
                     <Grid.ColumnDefinitions>
                         <ColumnDefinition Width="Auto" />
                         <ColumnDefinition Width="*" />
@@ -85,48 +108,16 @@
                     <Button Grid.Column="5" Content="Open output" Margin="8,0,0,0" Padding="8,2" Command="{Binding AgentPanel.OpenOutputFolderCommand}" />
                 </Grid>
 
-                <StackPanel Grid.Row="2" Margin="0,0,0,8">
-                    <StackPanel Orientation="Horizontal" Margin="0,0,0,6">
-                        <Button Content="Start Agent" Width="110" Command="{Binding AgentPanel.StartCommand}" />
-                        <Button Content="Stop Agent" Width="110" Margin="8,0,0,0" Command="{Binding AgentPanel.StopCommand}" />
-                        <Button Content="Dismiss" Width="90" Margin="18,0,0,0" Command="{Binding AgentPanel.DismissCommand}" />
-                        <Button Content="Copy" Width="90" Margin="8,0,0,0" Command="{Binding AgentPanel.CopyCommand}" />
-                    </StackPanel>
-                    <Grid>
-                        <Grid.ColumnDefinitions>
-                            <ColumnDefinition Width="Auto" />
-                            <ColumnDefinition Width="*" />
-                            <ColumnDefinition Width="Auto" />
-                        </Grid.ColumnDefinitions>
-                        <TextBlock Grid.Column="0" Text="Ask agent:" VerticalAlignment="Center" Margin="0,0,6,0" />
-                        <TextBox Grid.Column="1" Text="{Binding AgentPanel.AskText, UpdateSourceTrigger=PropertyChanged}" VerticalAlignment="Center" />
-                        <Button Grid.Column="2" Content="Ask" Width="70" Margin="8,0,0,0" Command="{Binding AgentPanel.AskCommand}" />
-                    </Grid>
-                </StackPanel>
-
-                <ListBox Grid.Row="3"
-                         ItemsSource="{Binding AgentPanel.Suggestions}"
-                         SelectedItem="{Binding AgentPanel.SelectedSuggestion}"
-                         HorizontalContentAlignment="Stretch"
-                         ScrollViewer.HorizontalScrollBarVisibility="Disabled">
-                    <ListBox.ItemTemplate>
-                        <DataTemplate>
-                            <StackPanel Margin="0,2">
-                                <StackPanel Orientation="Horizontal">
-                                    <TextBlock Text="{Binding Time}" Foreground="Gray" />
-                                    <TextBlock Text="{Binding Priority}" FontWeight="Bold" Margin="10,0,0,0" />
-                                    <TextBlock Text="{Binding Type}" Foreground="DarkSlateBlue" Margin="10,0,0,0" />
-                                    <TextBlock Text="{Binding Title}" FontWeight="SemiBold" Margin="10,0,0,0" />
-                                </StackPanel>
-                                <TextBlock Text="{Binding Message}" TextWrapping="Wrap" Foreground="#444444" />
-                            </StackPanel>
-                        </DataTemplate>
-                    </ListBox.ItemTemplate>
-                </ListBox>
+                <TextBox Grid.Row="3"
+                         Text="{Binding AgentPanel.Captions, Mode=OneWay}"
+                         IsReadOnly="True"
+                         TextWrapping="Wrap"
+                         VerticalScrollBarVisibility="Auto"
+                         FontFamily="Consolas" />
 
                 <StackPanel Grid.Row="4" Margin="0,8,0,0">
                     <TextBlock Text="{Binding AgentPanel.StatusText}" Foreground="Gray" TextWrapping="Wrap" />
-                    <TextBlock Text="Meeting participant mode (agent joins the meeting) is EXPERIMENTAL and not implemented — see docs/MEETING_JOIN_MODE.md."
+                    <TextBlock Text="hybrid keeps audio local (voice → local transcription → text). pushToTalk/continuous stream your mic and need agent.realtime.sendAudio=true. Use headphones for continuous."
                                Foreground="DarkGoldenrod" FontStyle="Italic" Margin="0,4,0,0" TextWrapping="Wrap" />
                 </StackPanel>
             </Grid>

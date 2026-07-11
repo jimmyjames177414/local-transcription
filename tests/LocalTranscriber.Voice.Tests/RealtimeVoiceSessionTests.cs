@@ -1,0 +1,248 @@
+using LocalTranscriber.Shared;
+using LocalTranscriber.Storage;
+using LocalTranscriber.Voice;
+
+namespace LocalTranscriber.Voice.Tests;
+
+public class RealtimeVoiceSessionTests
+{
+    private static RealtimeVoiceSession NewSession(
+        RealtimeVoiceOptions options,
+        FakeRealtimeTransport transport,
+        FakeAudioOutput? audio = null,
+        string transcript = "",
+        string? recorderPath = null,
+        IReadOnlyList<TranscriptEvent>? tailerEvents = null)
+        => new(
+            options,
+            () => transport,
+            audio ?? new FakeAudioOutput(),
+            new FakeTranscriber(transcript),
+            () => new FakeRecorder(recorderPath),
+            new EmptyContextService(),
+            tailerEvents is null ? null : () => new FakeTailer(tailerEvents),
+            // Always inject a device-free mic so tests never touch real audio hardware.
+            micStreamFactory: () => new FakeMicStream(0));
+
+    [Fact]
+    public async Task Start_ConfiguresRealtimeAudioSession_TurnDetectionNullForHybrid()
+    {
+        var transport = new FakeRealtimeTransport();
+        var options = new RealtimeVoiceOptions { ApiKey = "k", Model = "gpt-realtime-2.1-mini", Mode = RealtimeVoiceMode.Hybrid, Voice = "marin" };
+        await using var session = NewSession(options, transport);
+
+        await session.StartAsync();
+
+        Assert.Equal(1, transport.ConnectCalls);
+        Assert.Contains("model=gpt-realtime-2.1-mini", transport.LastUri!.Query);
+        Assert.Equal("Bearer k", transport.LastHeaders!["Authorization"]);
+
+        string sessionUpdate = Assert.Single(transport.SentSnapshot(), s => s.Contains("session.update"));
+        Assert.Contains("\"output_modalities\":[\"audio\"]", sessionUpdate);
+        Assert.Contains("\"voice\":\"marin\"", sessionUpdate);
+        Assert.Contains("\"rate\":24000", sessionUpdate);
+        Assert.Contains("\"turn_detection\":null", sessionUpdate);
+    }
+
+    [Fact]
+    public async Task Continuous_ConfiguresServerVadTurnDetection()
+    {
+        var transport = new FakeRealtimeTransport();
+        var options = new RealtimeVoiceOptions { ApiKey = "k", Mode = RealtimeVoiceMode.Continuous, VadThreshold = 0.6, VadSilenceMs = 400 };
+        await using var session = NewSession(options, transport);
+
+        await session.StartAsync();
+
+        string sessionUpdate = Assert.Single(transport.SentSnapshot(), s => s.Contains("session.update"));
+        Assert.Contains("\"type\":\"server_vad\"", sessionUpdate);
+        Assert.Contains("\"threshold\":0.6", sessionUpdate);
+        Assert.Contains("\"silence_duration_ms\":400", sessionUpdate);
+    }
+
+    [Fact]
+    public async Task Grounding_InjectsNewLinesSilently_WithoutResponseCreate()
+    {
+        var transport = new FakeRealtimeTransport();
+        var events = new[] { TestEvents.Line("We ship Friday.", 0), TestEvents.Line("Two blockers left.", 5) };
+        var options = new RealtimeVoiceOptions { ApiKey = "k", Mode = RealtimeVoiceMode.Hybrid, TranscriptJsonlPath = "fake.jsonl" };
+        await using var session = NewSession(options, transport, tailerEvents: events);
+
+        await session.StartAsync();
+
+        var sent = transport.SentSnapshot();
+        Assert.Contains(sent, s => s.Contains("conversation.item.create")
+            && s.Contains("We ship Friday.") && s.Contains("Two blockers left."));
+        Assert.DoesNotContain(sent, s => s.Contains("response.create"));
+    }
+
+    [Fact]
+    public async Task Hybrid_PushToTalk_SendsLocalTranscriptTextThenResponseCreate()
+    {
+        var transport = new FakeRealtimeTransport();
+        var options = new RealtimeVoiceOptions { ApiKey = "k", Mode = RealtimeVoiceMode.Hybrid };
+        await using var session = NewSession(options, transport, transcript: "Book the meeting room.", recorderPath: "held.wav");
+
+        await session.StartAsync();
+        await session.OnPushToTalkDownAsync();
+        await session.OnPushToTalkUpAsync();
+
+        var sent = transport.SentSnapshot().ToList();
+        int itemIndex = sent.FindIndex(s => s.Contains("conversation.item.create") && s.Contains("Book the meeting room."));
+        int responseIndex = sent.FindIndex(s => s.Contains("response.create"));
+        Assert.True(itemIndex >= 0, "input_text item was sent");
+        Assert.True(responseIndex > itemIndex, "response.create followed the input text");
+    }
+
+    [Fact]
+    public async Task Hybrid_NoAudioFramesStreamed()
+    {
+        var transport = new FakeRealtimeTransport();
+        var options = new RealtimeVoiceOptions { ApiKey = "k", Mode = RealtimeVoiceMode.Hybrid };
+        await using var session = NewSession(options, transport, transcript: "Hello there.", recorderPath: "held.wav");
+
+        await session.StartAsync();
+        await session.OnPushToTalkDownAsync();
+        await session.OnPushToTalkUpAsync();
+
+        Assert.DoesNotContain(transport.SentSnapshot(), s => s.Contains("input_audio_buffer.append"));
+    }
+
+    [Fact]
+    public async Task ReceivedAudioDelta_IsQueuedForPlayback()
+    {
+        var transport = new FakeRealtimeTransport();
+        var audio = new FakeAudioOutput();
+        byte[] payload = { 1, 2, 3, 4, 5, 6 };
+        transport.EnqueueServerEvent($"{{\"type\":\"response.output_audio.delta\",\"delta\":\"{Convert.ToBase64String(payload)}\"}}");
+
+        var options = new RealtimeVoiceOptions { ApiKey = "k", Mode = RealtimeVoiceMode.Hybrid };
+        await using var session = NewSession(options, transport, audio);
+
+        await session.StartAsync();
+        await WaitUntilAsync(() => !audio.Enqueued.IsEmpty, TimeSpan.FromSeconds(2));
+
+        Assert.True(audio.Enqueued.TryDequeue(out var bytes));
+        Assert.Equal(payload, bytes);
+        Assert.Equal(RealtimeVoiceState.Speaking, session.State);
+    }
+
+    [Fact]
+    public async Task PushToTalk_StreamsMicAppends_ThenCommitsAndRequestsResponse()
+    {
+        var transport = new FakeRealtimeTransport();
+        var options = new RealtimeVoiceOptions { ApiKey = "k", Mode = RealtimeVoiceMode.PushToTalk };
+        await using var session = new RealtimeVoiceSession(
+            options,
+            () => transport,
+            new FakeAudioOutput(),
+            new FakeTranscriber(""),
+            () => new FakeRecorder(null),
+            new EmptyContextService(),
+            tailerFactory: null,
+            micStreamFactory: () => new FakeMicStream(frames: 3));
+
+        await session.StartAsync();
+        await session.OnPushToTalkDownAsync();
+        await session.OnPushToTalkUpAsync();
+
+        var sent = transport.SentSnapshot().ToList();
+        Assert.Equal(3, sent.Count(s => s.Contains("input_audio_buffer.append")));
+        int commitIndex = sent.FindIndex(s => s.Contains("input_audio_buffer.commit"));
+        int responseIndex = sent.FindIndex(s => s.Contains("response.create"));
+        Assert.True(commitIndex >= 0, "input buffer was committed");
+        Assert.True(responseIndex > commitIndex, "response.create followed the commit");
+    }
+
+    [Fact]
+    public async Task Continuous_BargeIn_StopsPlaybackAndTruncatesHeardAudio()
+    {
+        var transport = new FakeRealtimeTransport();
+        var audio = new FakeAudioOutput { PlayedMilliseconds = 1234 };
+        // Assistant is speaking (audio delta with an item id), then the user starts talking.
+        transport.EnqueueServerEvent("{\"type\":\"response.output_audio.delta\",\"item_id\":\"item_42\",\"delta\":\"AAAA\"}");
+        transport.EnqueueServerEvent("{\"type\":\"input_audio_buffer.speech_started\"}");
+
+        var options = new RealtimeVoiceOptions { ApiKey = "k", Mode = RealtimeVoiceMode.Continuous };
+        await using var session = new RealtimeVoiceSession(
+            options,
+            () => transport,
+            audio,
+            new FakeTranscriber(""),
+            () => new FakeRecorder(null),
+            new EmptyContextService(),
+            tailerFactory: null,
+            micStreamFactory: () => new FakeMicStream(frames: 0));
+
+        await session.StartAsync();
+        await WaitUntilAsync(
+            () => audio.StopCalls > 0 && transport.SentSnapshot().Any(s => s.Contains("conversation.item.truncate")),
+            TimeSpan.FromSeconds(2));
+
+        var sent = transport.SentSnapshot();
+        Assert.Contains(sent, s => s.Contains("response.cancel"));
+        string truncate = Assert.Single(sent, s => s.Contains("conversation.item.truncate"));
+        Assert.Contains("\"item_id\":\"item_42\"", truncate);
+        Assert.Contains("\"content_index\":0", truncate);
+        Assert.Contains("\"audio_end_ms\":1234", truncate);
+    }
+
+    [Fact]
+    public async Task Start_RetriesInitialConnect_WhenFirstAttemptFails()
+    {
+        // Reproduces the "have to start voice twice" symptom: the first handshake is reset
+        // (enterprise TLS inspection / cold connect) and the retry succeeds.
+        var transport = new FakeRealtimeTransport { FailFirstNConnects = 1 };
+        var options = new RealtimeVoiceOptions { ApiKey = "k", Mode = RealtimeVoiceMode.Hybrid, MaxReconnectAttempts = 3 };
+        await using var session = NewSession(options, transport);
+
+        await session.StartAsync();
+
+        Assert.Equal(2, transport.ConnectCalls);
+        Assert.Contains(transport.SentSnapshot(), s => s.Contains("session.update"));
+        Assert.Equal(RealtimeVoiceState.Ready, session.State);
+    }
+
+    [Fact]
+    public async Task Start_InitialConnect_PropagatesWhenAllAttemptsFail()
+    {
+        var transport = new FakeRealtimeTransport { FailFirstNConnects = 5 };
+        var options = new RealtimeVoiceOptions { ApiKey = "k", Mode = RealtimeVoiceMode.Hybrid, MaxReconnectAttempts = 2 };
+        await using var session = NewSession(options, transport);
+
+        await Assert.ThrowsAsync<IOException>(() => session.StartAsync());
+        Assert.Equal(2, transport.ConnectCalls);
+    }
+
+    [Fact]
+    public void Factory_OffAndConsentGates()
+    {
+        var noSecrets = new SecretsService(Path.Combine(Path.GetTempPath(), "none-" + Guid.NewGuid().ToString("N") + ".json"));
+
+        var config = new AppConfig();
+        config.Agent.Realtime.VoiceMode = "off";
+        var offResult = RealtimeVoiceFactory.Create(config, noSecrets);
+        Assert.Null(offResult.Session);
+        Assert.Contains("off", offResult.Notice!, StringComparison.OrdinalIgnoreCase);
+
+        config.Agent.Realtime.VoiceMode = "continuous";
+        config.Agent.Realtime.Enabled = true;
+        config.Agent.Realtime.SendAudio = false;
+        var consentResult = RealtimeVoiceFactory.Create(config, noSecrets);
+        Assert.Null(consentResult.Session);
+        Assert.Contains("sendAudio", consentResult.Notice!, StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static async Task WaitUntilAsync(Func<bool> condition, TimeSpan timeout)
+    {
+        var deadline = DateTime.UtcNow + timeout;
+        while (DateTime.UtcNow < deadline)
+        {
+            if (condition())
+            {
+                return;
+            }
+            await Task.Delay(20);
+        }
+        throw new TimeoutException("Condition not met within timeout.");
+    }
+}

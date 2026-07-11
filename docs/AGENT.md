@@ -1,5 +1,11 @@
 # Meeting Agent (Live AI Sidecar)
 
+> **Superseded.** The text-suggestion surface described below has been **removed** and replaced
+> by a real-time **voice conversation** with the AI — see [`REALTIME_PROVIDER.md`](REALTIME_PROVIDER.md).
+> The shared infrastructure this doc mentions (transcript tailer, rolling window, context packs,
+> secrets/config, realtime transport) is retained and reused by the voice feature. The suggestion
+> data flow / providers / policy / storage below are historical.
+
 Optional layer that watches the live transcript event stream (`.jsonl`) and produces private suggestions: risks, blockers, decisions, action items, contradictions, questions to ask, suggested responses. Disabled by default; the offline transcriber never needs it.
 
 ## Data flow

@@ -2,12 +2,6 @@
 
   <ItemGroup>
     <ProjectReference Include="..\LocalTranscriber.Shared\LocalTranscriber.Shared.csproj" />
-    <ProjectReference Include="..\LocalTranscriber.Storage\LocalTranscriber.Storage.csproj" />
-    <ProjectReference Include="..\LocalTranscriber.Context\LocalTranscriber.Context.csproj" />
-  </ItemGroup>
-
-  <ItemGroup>
-    <PackageReference Include="System.Speech" Version="10.0.9" />
   </ItemGroup>
 
   <PropertyGroup>
