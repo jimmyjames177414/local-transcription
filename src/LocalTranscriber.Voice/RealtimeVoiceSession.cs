@@ -50,6 +50,7 @@ public sealed class RealtimeVoiceSession : IRealtimeVoiceConversation
     private IAgentMicStream? _micStream;
     private Channel<byte[]>? _micChannel;
     private Task? _micPump;
+    private int _micFramesSent;
     private string? _currentItemId;
     private RealtimeVoiceState _state = RealtimeVoiceState.Idle;
 
@@ -85,6 +86,7 @@ public sealed class RealtimeVoiceSession : IRealtimeVoiceConversation
     public event EventHandler<RealtimeVoiceState>? StateChanged;
     public event EventHandler<string>? ErrorOccurred;
     public event EventHandler<string>? UserTextCommitted;
+    public event EventHandler<string>? UserSpeechTranscribed;
     public event EventHandler? ResponseCompleted;
 
     public async Task StartAsync(CancellationToken cancellationToken = default)
@@ -210,6 +212,12 @@ public sealed class RealtimeVoiceSession : IRealtimeVoiceConversation
             }
         };
 
+        // Enable server-side transcription for audio modes so the UI can show what the user said.
+        if (_options.Mode != RealtimeVoiceMode.Hybrid)
+        {
+            session["input_audio_transcription"] = new { model = "whisper-1" };
+        }
+
         if (_options.Tools.Count > 0)
         {
             session["tools"] = _options.Tools
@@ -282,8 +290,19 @@ public sealed class RealtimeVoiceSession : IRealtimeVoiceConversation
 
         if (_options.Mode == RealtimeVoiceMode.PushToTalk)
         {
+            // Read and reset the frame counter before stopping so we know if any audio was sent.
+            int framesSent = Interlocked.Exchange(ref _micFramesSent, 0);
             await StopMicStreamingAsync().ConfigureAwait(false);
-            // Show a placeholder bubble immediately so the user sees their turn in the chat.
+
+            if (framesSent == 0)
+            {
+                // Mic failed to start (error was already fired in OnPushToTalkDownAsync).
+                // Don't commit an empty buffer — OpenAI rejects it with "buffer too small".
+                SetState(RealtimeVoiceState.Ready);
+                return;
+            }
+
+            // Show placeholder bubble; server transcription will replace "🎙" with the actual words.
             UserTextCommitted?.Invoke(this, "🎙");
             // No server VAD: explicitly close the input buffer and ask for a reply.
             await SendAsync(new { type = "input_audio_buffer.commit" }, ct).ConfigureAwait(false);
@@ -366,7 +385,13 @@ public sealed class RealtimeVoiceSession : IRealtimeVoiceConversation
         await _micStream.StartAsync(ct).ConfigureAwait(false);
     }
 
-    private void OnMicFrame(object? sender, byte[] frame) => _micChannel?.Writer.TryWrite(frame);
+    private void OnMicFrame(object? sender, byte[] frame)
+    {
+        if (_micChannel?.Writer.TryWrite(frame) == true)
+        {
+            Interlocked.Increment(ref _micFramesSent);
+        }
+    }
 
     private async Task MicSendPumpAsync(CancellationToken ct)
     {
@@ -463,6 +488,9 @@ public sealed class RealtimeVoiceSession : IRealtimeVoiceConversation
                 break;
             case RealtimeVoiceEventKind.FunctionCallDone when evt.CallId is not null:
                 await OnFunctionCallAsync(evt, ct).ConfigureAwait(false);
+                break;
+            case RealtimeVoiceEventKind.InputAudioTranscriptionDone when evt.Text is { Length: > 0 }:
+                UserSpeechTranscribed?.Invoke(this, evt.Text.Trim());
                 break;
             case RealtimeVoiceEventKind.Error:
                 AppLog.Warn("voice", $"Realtime error: {evt.Text}");

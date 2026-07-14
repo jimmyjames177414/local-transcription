@@ -30,10 +30,14 @@ public static class AgentCommands
             {
                 config.Agent.Realtime.VoiceMode = mode;
             }
-            // Running `agent talk` is the explicit user action that opens the realtime connection.
-            config.Agent.Realtime.Enabled = true;
+            // Running `agent talk` is the explicit user action that opens the realtime connection
+            // (ignored by the claude-cli backend, which spawns per turn).
+            if (!string.Equals(config.Agent.Provider, "claude-cli", StringComparison.OrdinalIgnoreCase))
+            {
+                config.Agent.Realtime.Enabled = true;
+            }
 
-            var resolution = RealtimeVoiceFactory.Create(config, new SecretsService(), transcript);
+            var resolution = AgentConversationFactory.Create(config, new SecretsService(), transcript);
             if (resolution.Session is null)
             {
                 Console.Error.WriteLine(resolution.Notice);

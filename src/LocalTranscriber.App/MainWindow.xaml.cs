@@ -29,6 +29,7 @@ public partial class MainWindow : Window
         Notes = new NotesPanelViewModel(_notesService);
         AgentPanel.SaveNote = (markdown) => _notesService.WriteAsync(markdown);
         AgentPanel.ConsentRequested += OnConsentRequested;
+        AgentPanel.FullAgentConsentRequested += OnFullAgentConsentRequested;
         SessionsPanel.DeleteRequested += item => _ = OnDeleteSessionRequestedAsync(item);
         Session.PropertyChanged += OnSessionPropertyChanged;
         Session.NavigateToSettings = section =>
@@ -133,6 +134,13 @@ public partial class MainWindow : Window
         var dialog = new Views.Dialogs.VoiceModeConsentDialog(requestedMode) { Owner = this };
         bool accepted = dialog.ShowDialog() == true;
         AgentPanel.ApplyVoiceMode(dialog.SelectedMode, grantAudioConsent: accepted);
+    }
+
+    /// <summary>First claude-cli start without stored edit/command consent (mirrors the mic-consent flow).</summary>
+    private void OnFullAgentConsentRequested(object? sender, FullAgentConsentEventArgs e)
+    {
+        var dialog = new Views.Dialogs.FullAgentConsentDialog(e.WorkspaceFolder) { Owner = this };
+        e.Granted = dialog.ShowDialog() == true;
     }
 
     /// <summary>Space is hold-to-talk anywhere except while typing in a text box.</summary>

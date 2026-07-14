@@ -42,6 +42,8 @@ public sealed class AgentPanelViewModel : ObservableObject
     private string _statusText = "Assistant off";
     private string _chatInput = "";
     private bool _agentEnabled;
+    private string _selectedProvider;
+    private string _workspaceFolder;
     private string _selectedVoiceMode;
     private string _voiceName;
     private string? _selectedInputDeviceId;
@@ -61,6 +63,8 @@ public sealed class AgentPanelViewModel : ObservableObject
 
         var config = _configService.Load();
         _agentEnabled = config.Agent.Enabled;
+        _selectedProvider = config.Agent.Provider;
+        _workspaceFolder = config.Agent.ClaudeCli.WorkspaceFolder;
         _selectedVoiceMode = config.Agent.Realtime.VoiceMode;
         _voiceName = config.Agent.Realtime.Voice;
         _selectedInputDeviceId = config.Agent.Realtime.InputAudioDeviceId;
@@ -68,10 +72,12 @@ public sealed class AgentPanelViewModel : ObservableObject
         _speakReplies = config.Agent.Realtime.SpeakReplies;
         _contextFolder = config.Agent.ContextFolder;
         _outputFolder = config.Agent.AgentOutputFolder;
+        RecentWorkspaces = new ObservableCollection<string>(config.Agent.ClaudeCli.RecentWorkspaces);
 
-        StartVoiceCommand = new AsyncRelayCommand(StartVoiceAsync, () => _voice is null && SelectedVoiceMode != "off");
+        StartVoiceCommand = new AsyncRelayCommand(StartVoiceAsync, () => _voice is null && CanConverse);
         StopVoiceCommand = new AsyncRelayCommand(StopVoiceAsync, () => _voice is not null);
-        SendTextCommand = new AsyncRelayCommand(SendTextAsync, () => AgentEnabled && SelectedVoiceMode != "off");
+        SendTextCommand = new AsyncRelayCommand(SendTextAsync, () => AgentEnabled && CanConverse);
+        CancelTurnCommand = new RelayCommand(() => _voice?.CancelTurn(), () => CanCancelTurn);
         RefreshInputDevicesCommand = new RelayCommand(RefreshDevices);
         OpenContextFolderCommand = new RelayCommand(() => OpenFolder(ContextFolder));
         OpenOutputFolderCommand = new RelayCommand(() => OpenFolder(OutputFolder));
@@ -95,8 +101,20 @@ public sealed class AgentPanelViewModel : ObservableObject
     public bool HasApiKey
     {
         get => _hasApiKey;
-        private set => SetProperty(ref _hasApiKey, value);
+        private set
+        {
+            if (SetProperty(ref _hasApiKey, value))
+            {
+                OnPropertyChanged(nameof(ShowOpenAiKeyWarning));
+            }
+        }
     }
+
+    /// <summary>
+    /// The missing-OpenAI-key banner applies only to the OpenAI backend; claude-cli authenticates
+    /// through the CLI's own login and needs no OpenAI key.
+    /// </summary>
+    public bool ShowOpenAiKeyWarning => AgentEnabled && !HasApiKey && !IsClaudeCli;
 
     public string ApiKeyNotice
     {
@@ -153,6 +171,7 @@ public sealed class AgentPanelViewModel : ObservableObject
     public AsyncRelayCommand StartVoiceCommand { get; }
     public AsyncRelayCommand StopVoiceCommand { get; }
     public AsyncRelayCommand SendTextCommand { get; }
+    public RelayCommand CancelTurnCommand { get; }
     public RelayCommand RefreshInputDevicesCommand { get; }
     public RelayCommand OpenContextFolderCommand { get; }
     public RelayCommand OpenOutputFolderCommand { get; }
@@ -172,6 +191,9 @@ public sealed class AgentPanelViewModel : ObservableObject
             {
                 OnPropertyChanged(nameof(PillText));
                 OnPropertyChanged(nameof(IsPillActive));
+                OnPropertyChanged(nameof(IsThinking));
+                OnPropertyChanged(nameof(CanCancelTurn));
+                CancelTurnCommand.RaiseCanExecuteChanged();
             }
         }
     }
@@ -179,6 +201,16 @@ public sealed class AgentPanelViewModel : ObservableObject
     /// <summary>True while the assistant is doing something (drives the pill's pulse animation).</summary>
     public bool IsPillActive => _pillState is AgentPillState.Connecting or AgentPillState.Listening
         or AgentPillState.Thinking or AgentPillState.Speaking;
+
+    /// <summary>True while a turn is running.</summary>
+    public bool IsThinking => _pillState == AgentPillState.Thinking;
+
+    /// <summary>
+    /// Shows the mid-turn Cancel affordance. Only the claude-cli backend can interrupt a running turn
+    /// (it kills its child process); the OpenAI realtime <see cref="IRealtimeVoiceConversation.CancelTurn"/>
+    /// is a no-op, so offering Cancel there would mislead.
+    /// </summary>
+    public bool CanCancelTurn => IsClaudeCli && IsThinking;
 
     public string PillText => _pillState switch
     {
@@ -263,15 +295,70 @@ public sealed class AgentPanelViewModel : ObservableObject
             OnPropertyChanged(nameof(AgentCloudActive));
             OnPropertyChanged(nameof(PrivacyLocalText));
             OnPropertyChanged(nameof(PrivacyAgentText));
+            OnPropertyChanged(nameof(ShowOpenAiKeyWarning));
             SendTextCommand.RaiseCanExecuteChanged();
         }
     }
+
+    /// <summary>Assistant backends the user can pick between.</summary>
+    public string[] Providers { get; } = { "openai", "claude-cli" };
+
+    /// <summary>True when the claude-cli backend is selected (drives workspace UI + typed-chat gating).</summary>
+    public bool IsClaudeCli => string.Equals(_selectedProvider, "claude-cli", StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>
+    /// Whether a conversation can be held. claude-cli is typed-chat first, so it needs no voice mode;
+    /// the OpenAI backend still requires a non-off voice mode (its only channel is the realtime socket).
+    /// </summary>
+    private bool CanConverse => IsClaudeCli || SelectedVoiceMode != "off";
+
+    public string SelectedProvider
+    {
+        get => _selectedProvider;
+        set
+        {
+            if (!SetProperty(ref _selectedProvider, value))
+            {
+                return;
+            }
+            PersistConfig(c => c.Agent.Provider = value);
+            OnPropertyChanged(nameof(IsClaudeCli));
+            OnPropertyChanged(nameof(CanCancelTurn));
+            OnPropertyChanged(nameof(ShowOpenAiKeyWarning));
+            StartVoiceCommand.RaiseCanExecuteChanged();
+            SendTextCommand.RaiseCanExecuteChanged();
+            CancelTurnCommand.RaiseCanExecuteChanged();
+        }
+    }
+
+    /// <summary>Claude CLI workspace root (its process working directory). Also drives the quick-switch box.</summary>
+    public string WorkspaceFolder
+    {
+        get => _workspaceFolder;
+        set
+        {
+            if (!SetProperty(ref _workspaceFolder, value))
+            {
+                return;
+            }
+            PersistConfig(c => c.Agent.ClaudeCli.WorkspaceFolder = value ?? "");
+        }
+    }
+
+    /// <summary>Recently used claude-cli workspaces, newest first, for the meeting quick-switch dropdown.</summary>
+    public ObservableCollection<string> RecentWorkspaces { get; }
 
     /// <summary>
     /// Raised when switching to a streaming mode without stored consent (sendAudio=false).
     /// The shell shows the consent dialog and calls <see cref="ApplyVoiceMode"/> with the outcome.
     /// </summary>
     public event EventHandler<string>? ConsentRequested;
+
+    /// <summary>
+    /// Raised before the first claude-cli start without stored edit/command consent. The shell shows
+    /// the full-agent consent dialog synchronously and sets <see cref="FullAgentConsentEventArgs.Granted"/>.
+    /// </summary>
+    public event EventHandler<FullAgentConsentEventArgs>? FullAgentConsentRequested;
 
     public string SelectedVoiceMode
     {
@@ -386,11 +473,30 @@ public sealed class AgentPanelViewModel : ObservableObject
         {
             PillState = AgentPillState.Connecting;
             var config = _configService.Load();
-            // Starting from the UI is the explicit action that opens the realtime connection.
-            config.Agent.Realtime.Enabled = true;
-            _configService.Save(config);
 
-            var resolution = RealtimeVoiceFactory.Create(
+            if (IsClaudeCli)
+            {
+                // Full-agent (edit/command) capability needs explicit one-time consent. Until granted
+                // the backend runs read-only; declining proceeds read-only for this session.
+                if (!config.Agent.ClaudeCli.AllowEditsAndCommands && FullAgentConsentRequested is not null)
+                {
+                    var consent = new FullAgentConsentEventArgs(config.Agent.ClaudeCli.WorkspaceFolder);
+                    FullAgentConsentRequested.Invoke(this, consent);
+                    if (consent.Granted)
+                    {
+                        config.Agent.ClaudeCli.AllowEditsAndCommands = true;
+                        _configService.Save(config);
+                    }
+                }
+            }
+            else
+            {
+                // Starting the OpenAI backend from the UI is the explicit action that opens the realtime connection.
+                config.Agent.Realtime.Enabled = true;
+                _configService.Save(config);
+            }
+
+            var resolution = AgentConversationFactory.Create(
                 config, new SecretsService(), _currentTranscriptPath(),
                 tools: BuildTools(), toolHandler: SaveNote is null ? null : HandleToolCallAsync);
             if (resolution.Session is null)
@@ -405,10 +511,20 @@ public sealed class AgentPanelViewModel : ObservableObject
             _voice.StateChanged += OnVoiceStateChanged;
             _voice.ErrorOccurred += OnVoiceError;
             _voice.UserTextCommitted += OnUserTextCommitted;
+            _voice.UserSpeechTranscribed += OnUserSpeechTranscribed;
             _voice.ResponseCompleted += OnResponseCompleted;
 
             await _voice.StartAsync();
-            StatusText = $"Voice started ({SelectedVoiceMode}).";
+
+            if (IsClaudeCli)
+            {
+                PushRecentWorkspace(WorkspaceFolder);
+                StatusText = $"Assistant connected (claude-cli · {WorkspaceFolder}).";
+            }
+            else
+            {
+                StatusText = $"Voice started ({SelectedVoiceMode}).";
+            }
         }
         catch (Exception ex)
         {
@@ -433,6 +549,7 @@ public sealed class AgentPanelViewModel : ObservableObject
                 _voice.StateChanged -= OnVoiceStateChanged;
                 _voice.ErrorOccurred -= OnVoiceError;
                 _voice.UserTextCommitted -= OnUserTextCommitted;
+                _voice.UserSpeechTranscribed -= OnUserSpeechTranscribed;
                 _voice.ResponseCompleted -= OnResponseCompleted;
                 await _voice.DisposeAsync();
                 StatusText = "Voice conversation stopped.";
@@ -616,6 +733,20 @@ public sealed class AgentPanelViewModel : ObservableObject
     private void OnUserTextCommitted(object? sender, string text)
         => PostToUi(() => Messages.Add(new ChatMessageViewModel(ChatRole.User, text)));
 
+    private void OnUserSpeechTranscribed(object? sender, string text)
+        => PostToUi(() =>
+        {
+            // Replace the "🎙" placeholder with the actual transcription from the server.
+            for (int i = Messages.Count - 1; i >= 0; i--)
+            {
+                if (Messages[i].IsUser && Messages[i].Text == "🎙")
+                {
+                    Messages[i].Text = text;
+                    return;
+                }
+            }
+        });
+
     private void OnVoiceStateChanged(object? sender, RealtimeVoiceState state)
         => PostToUi(() =>
         {
@@ -637,6 +768,28 @@ public sealed class AgentPanelViewModel : ObservableObject
 
     private void OnVoiceError(object? sender, string message)
         => PostToUi(() => StatusText = message);
+
+    /// <summary>Moves a workspace to the top of the recents (deduped, capped), then persists.</summary>
+    private void PushRecentWorkspace(string? folder)
+    {
+        if (string.IsNullOrWhiteSpace(folder))
+        {
+            return;
+        }
+
+        var existing = RecentWorkspaces.FirstOrDefault(w => string.Equals(w, folder, StringComparison.OrdinalIgnoreCase));
+        if (existing is not null)
+        {
+            RecentWorkspaces.Remove(existing);
+        }
+        RecentWorkspaces.Insert(0, folder);
+        while (RecentWorkspaces.Count > 8)
+        {
+            RecentWorkspaces.RemoveAt(RecentWorkspaces.Count - 1);
+        }
+
+        PersistConfig(c => c.Agent.ClaudeCli.RecentWorkspaces = RecentWorkspaces.ToList());
+    }
 
     private void PersistConfig(Action<AppConfig> mutate)
     {
@@ -688,3 +841,15 @@ public sealed class AgentPanelViewModel : ObservableObject
 
 /// <summary>A microphone option for the voice input dropdown (Id null = Windows default).</summary>
 public sealed record VoiceInputDevice(string? Id, string Name);
+
+/// <summary>Carries the full-agent consent decision back from the shell's dialog.</summary>
+public sealed class FullAgentConsentEventArgs : EventArgs
+{
+    public FullAgentConsentEventArgs(string workspaceFolder) => WorkspaceFolder = workspaceFolder;
+
+    /// <summary>The workspace the CLI would be allowed to modify — shown in the dialog copy.</summary>
+    public string WorkspaceFolder { get; }
+
+    /// <summary>Set true by the shell when the user grants edit/command capability.</summary>
+    public bool Granted { get; set; }
+}

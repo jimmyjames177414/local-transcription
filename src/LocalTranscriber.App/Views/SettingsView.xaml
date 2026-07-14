@@ -4,6 +4,7 @@
              xmlns:conv="clr-namespace:LocalTranscriber.App.Converters">
     <!-- Settings per design 4f: left section nav, grouped fields, save feedback. -->
     <UserControl.Resources>
+        <BooleanToVisibilityConverter x:Key="BoolToVisibility" />
         <conv:ScreenVisibilityConverter x:Key="SectionVisibility" />
         <Style x:Key="FieldLabel" TargetType="TextBlock">
             <Setter Property="FontSize" Value="11.5" />
@@ -195,6 +196,30 @@
 
                         <CheckBox Content="Enable assistant" Style="{StaticResource ToggleSwitchStyle}" Margin="0,0,0,12"
                                   IsChecked="{Binding AgentPanel.AgentEnabled}" />
+
+                        <TextBlock Text="Backend" Style="{StaticResource FieldLabel}" />
+                        <ComboBox Width="160" HorizontalAlignment="Left" Margin="0,0,0,4"
+                                  Style="{StaticResource ComboBoxStyle}"
+                                  ItemsSource="{Binding AgentPanel.Providers}" SelectedItem="{Binding AgentPanel.SelectedProvider}" />
+                        <TextBlock Text="openai = cloud realtime voice/text; claude-cli = local Claude Code CLI in a workspace you choose."
+                                   FontSize="10" Foreground="{StaticResource Brush.Text.Hint}" Margin="0,0,0,12" TextWrapping="Wrap" />
+
+                        <!-- Claude CLI workspace picker (only for the claude-cli backend) -->
+                        <StackPanel Visibility="{Binding AgentPanel.IsClaudeCli, Converter={StaticResource BoolToVisibility}}">
+                            <TextBlock Text="Workspace folder" Style="{StaticResource FieldLabel}" />
+                            <Grid Margin="0,0,0,4">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*" />
+                                    <ColumnDefinition Width="Auto" />
+                                </Grid.ColumnDefinitions>
+                                <TextBox Grid.Column="0" Style="{StaticResource PathInputStyle}"
+                                         Text="{Binding AgentPanel.WorkspaceFolder, UpdateSourceTrigger=PropertyChanged}" />
+                                <Button Grid.Column="1" Content="Browse…" Style="{StaticResource SubtleButtonStyle}" Margin="8,0,0,0"
+                                        Click="BrowseWorkspaceFolder_Click" />
+                            </Grid>
+                            <TextBlock Text="The CLI runs here and reads that project's CLAUDE.md, files, memory, and MCP tools. Full-agent mode asks for consent on first connect, then can edit files and run commands here."
+                                       FontSize="10" Foreground="{StaticResource Brush.Text.Hint}" Margin="0,0,0,12" TextWrapping="Wrap" />
+                        </StackPanel>
 
                         <TextBlock Text="Voice mode" Style="{StaticResource FieldLabel}" />
                         <ComboBox Width="160" HorizontalAlignment="Left" Margin="0,0,0,4"

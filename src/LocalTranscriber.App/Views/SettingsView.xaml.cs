@@ -39,6 +39,15 @@ public partial class SettingsView : UserControl
         }
     }
 
+    private void BrowseWorkspaceFolder_Click(object sender, System.Windows.RoutedEventArgs e)
+    {
+        var dialog = new OpenFolderDialog { Title = "Choose the Claude CLI workspace folder" };
+        if (dialog.ShowDialog(System.Windows.Window.GetWindow(this)) == true && Shell is { } shell)
+        {
+            shell.AgentPanel.WorkspaceFolder = dialog.FolderName;
+        }
+    }
+
     private void BrowseMinutesFolder_Click(object sender, System.Windows.RoutedEventArgs e)
     {
         var dialog = new OpenFolderDialog { Title = "Choose the Minutes meetings folder" };

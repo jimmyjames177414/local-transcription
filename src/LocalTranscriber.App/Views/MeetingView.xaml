@@ -395,6 +395,15 @@
                     </Border>
                     </StackPanel>
 
+                    <!-- Workspace quick-switch (claude-cli backend only) -->
+                    <ComboBox Grid.Column="2" IsEditable="True" MinWidth="150" MaxWidth="280" HorizontalAlignment="Left"
+                              Margin="10,0,10,0" FontSize="10.5" VerticalAlignment="Center"
+                              Style="{StaticResource ComboBoxStyle}"
+                              ItemsSource="{Binding AgentPanel.RecentWorkspaces}"
+                              Text="{Binding AgentPanel.WorkspaceFolder, UpdateSourceTrigger=LostFocus}"
+                              ToolTip="Claude CLI workspace — the folder the assistant runs in"
+                              Visibility="{Binding AgentPanel.IsClaudeCli, Converter={StaticResource BoolToVisibility}}" />
+
                     <!-- Status pill -->
                     <Border Grid.Column="3" CornerRadius="99" BorderThickness="1" Padding="9,3" VerticalAlignment="Center">
                         <Border.Style>
@@ -526,6 +535,9 @@
                     <Button Grid.Column="4" Content="Start" Style="{StaticResource SubtleButtonStyle}" Padding="9,3" Margin="8,0,0,0"
                             FontSize="10.5" Command="{Binding AgentPanel.StartVoiceCommand}" ToolTip="Connect the assistant" />
                     <StackPanel Grid.Column="5" Orientation="Horizontal">
+                        <Button Content="✕ Cancel" Style="{StaticResource SubtleButtonStyle}" Padding="9,3" Margin="4,0,0,0"
+                                FontSize="10.5" Command="{Binding AgentPanel.CancelTurnCommand}" ToolTip="Stop the assistant's current turn"
+                                Visibility="{Binding AgentPanel.CanCancelTurn, Converter={StaticResource BoolToVisibility}}" />
                         <Button Content="Stop" Style="{StaticResource SubtleButtonStyle}" Padding="9,3" Margin="4,0,0,0"
                                 FontSize="10.5" Command="{Binding AgentPanel.StopVoiceCommand}" ToolTip="Disconnect the assistant" />
                         <Button x:Name="CompactNotesButton" Content="✎ Notes" Style="{StaticResource SubtleButtonStyle}" Padding="9,3"
@@ -548,13 +560,9 @@
                         <Style TargetType="Border">
                             <Setter Property="Visibility" Value="Collapsed" />
                             <Style.Triggers>
-                                <MultiDataTrigger>
-                                    <MultiDataTrigger.Conditions>
-                                        <Condition Binding="{Binding AgentPanel.HasApiKey}" Value="False" />
-                                        <Condition Binding="{Binding AgentPanel.AgentEnabled}" Value="True" />
-                                    </MultiDataTrigger.Conditions>
+                                <DataTrigger Binding="{Binding AgentPanel.ShowOpenAiKeyWarning}" Value="True">
                                     <Setter Property="Visibility" Value="Visible" />
-                                </MultiDataTrigger>
+                                </DataTrigger>
                             </Style.Triggers>
                         </Style>
                     </Border.Style>

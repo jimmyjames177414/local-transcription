@@ -23,6 +23,14 @@ public enum RealtimeVoiceMode
 public sealed class AgentConfig
 {
     public bool Enabled { get; set; }
+
+    /// <summary>
+    /// Assistant backend: "openai" (default — OpenAI realtime voice/text) or "claude-cli"
+    /// (shell out to the local Claude Code CLI in a chosen workspace). Defaulting to "openai"
+    /// preserves behaviour for existing configs.
+    /// </summary>
+    public string Provider { get; set; } = "openai";
+
     public string ContextFolder { get; set; } = "context";
     public string AgentOutputFolder { get; set; } = Path.Combine("output", "agent");
     public int RollingWindowMinutes { get; set; } = 5;
@@ -30,6 +38,40 @@ public sealed class AgentConfig
     public int MaxContextCharacters { get; set; } = 20000;
     public List<string> RequiredContextFiles { get; set; } = new() { "codename-summary.md" };
     public RealtimeAgentConfig Realtime { get; set; } = new();
+    public ClaudeCliAgentConfig ClaudeCli { get; set; } = new();
+}
+
+/// <summary>
+/// Configuration for the optional Claude Code CLI assistant backend. Off by default — the CLI is
+/// launched one-shot per turn with its working directory set to <see cref="WorkspaceFolder"/> so it
+/// reads that project's CLAUDE.md, files, memory, and MCP tools. File-edit/command capability is
+/// gated behind <see cref="AllowEditsAndCommands"/> (explicit one-time consent). Transcription stays
+/// fully local regardless of this setting.
+/// </summary>
+public sealed class ClaudeCliAgentConfig
+{
+    public bool Enabled { get; set; }
+
+    /// <summary>CLI executable; resolved on PATH (→ claude.exe on Windows) when not an absolute path.</summary>
+    public string ExecutablePath { get; set; } = "claude";
+
+    /// <summary>Process working directory the CLI runs in (required). The chosen project root.</summary>
+    public string WorkspaceFolder { get; set; } = "";
+
+    /// <summary>Model alias passed with --model (e.g. "opus"); empty uses the CLI default.</summary>
+    public string Model { get; set; } = "";
+
+    /// <summary>Stored consent letting the CLI edit files and run commands in the workspace (full agent).</summary>
+    public bool AllowEditsAndCommands { get; set; }
+
+    /// <summary>Per-turn timeout in seconds before the child process is killed and an error surfaced.</summary>
+    public int TimeoutSeconds { get; set; } = 300;
+
+    /// <summary>Recent transcript lines snapshotted into each turn's prompt for live-meeting grounding.</summary>
+    public int MaxTranscriptEvents { get; set; } = 10;
+
+    /// <summary>Recently used workspaces, for the meeting-screen quick-switch dropdown.</summary>
+    public List<string> RecentWorkspaces { get; set; } = new();
 }
 
 public sealed class RealtimeAgentConfig

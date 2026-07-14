@@ -11,7 +11,8 @@ public enum RealtimeVoiceEventKind
     SpeechStarted,
     ResponseDone,
     FunctionCallDone,
-    Error
+    Error,
+    InputAudioTranscriptionDone
 }
 
 /// <summary>
@@ -53,6 +54,10 @@ public static class RealtimeVoiceEventMapper
                 case "response.audio_transcript.done":
                     return new RealtimeVoiceServerEvent(RealtimeVoiceEventKind.AudioTranscriptDone,
                         GetString(root, "transcript") ?? GetString(root, "text"));
+
+                case "conversation.item.input_audio_transcription.completed":
+                    return new RealtimeVoiceServerEvent(RealtimeVoiceEventKind.InputAudioTranscriptionDone,
+                        GetString(root, "transcript"));
 
                 case "input_audio_buffer.speech_started":
                     return new RealtimeVoiceServerEvent(RealtimeVoiceEventKind.SpeechStarted, null);

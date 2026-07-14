@@ -97,6 +97,13 @@ public interface IRealtimeVoiceConversation : IAsyncDisposable
     /// </summary>
     event EventHandler<string>? UserTextCommitted;
 
+    /// <summary>
+    /// Raised when the server returns a transcription of the user's pushed audio
+    /// (pushToTalk / continuous only). Lets the UI replace the "🎙" placeholder with
+    /// the actual words spoken.
+    /// </summary>
+    event EventHandler<string>? UserSpeechTranscribed;
+
     /// <summary>Raised when the assistant finishes a reply (server response.done).</summary>
     event EventHandler? ResponseCompleted;
 
@@ -113,6 +120,13 @@ public interface IRealtimeVoiceConversation : IAsyncDisposable
 
     /// <summary>End a user turn (key/button up). Hybrid transcribes locally; pushToTalk commits audio.</summary>
     void PushToTalkUp();
+
+    /// <summary>
+    /// Interrupts the in-flight turn if the backend supports it, returning to <see cref="RealtimeVoiceState.Ready"/>.
+    /// Default is a no-op (the OpenAI realtime session cancels turns via its own barge-in path); the
+    /// Claude-CLI backend overrides this to kill its long-running child process mid-turn.
+    /// </summary>
+    void CancelTurn() { }
 
     Task StopAsync(CancellationToken cancellationToken = default);
 }
