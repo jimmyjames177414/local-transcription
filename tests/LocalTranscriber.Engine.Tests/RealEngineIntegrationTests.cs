@@ -73,6 +73,52 @@ public class RealEngineIntegrationTests : IAsyncLifetime
         }
     }
 
+    private sealed class StallingCaptureService : IAudioCaptureService
+    {
+        private readonly AudioSourceType _source;
+        private readonly TimeSpan _stallAfter;
+        private CancellationTokenSource? _cts;
+
+        public StallingCaptureService(AudioSourceType source, TimeSpan stallAfter)
+        {
+            _source = source;
+            _stallAfter = stallAfter;
+        }
+
+        public AudioSourceType Source => _source;
+        public event EventHandler<AudioChunk>? ChunkAvailable;
+        public bool IsCapturing { get; private set; }
+
+        public Task StartAsync(AudioCaptureOptions options, CancellationToken cancellationToken = default)
+        {
+            _cts = new CancellationTokenSource();
+            IsCapturing = true;
+            byte[] data = new byte[16000];
+            for (int i = 0; i < data.Length; i += 2)
+                BitConverter.TryWriteBytes(data.AsSpan(i), (short)20000);
+            var stopAt = DateTimeOffset.Now + _stallAfter;
+            _ = Task.Run(async () =>
+            {
+                while (!_cts.Token.IsCancellationRequested)
+                {
+                    if (DateTimeOffset.Now < stopAt)
+                        ChunkAvailable?.Invoke(this, new AudioChunk(_source, data, 16000, 1, 16, false, DateTimeOffset.Now));
+                    await Task.Delay(10, _cts.Token).ConfigureAwait(false);
+                }
+            });
+            return Task.CompletedTask;
+        }
+
+        public Task StopAsync(CancellationToken cancellationToken = default)
+        {
+            _cts?.Cancel();
+            IsCapturing = false;
+            return Task.CompletedTask;
+        }
+
+        public async ValueTask DisposeAsync() => await StopAsync();
+    }
+
     private sealed class FakeTranscriptionService : ILocalTranscriptionService
     {
         private int _calls;
@@ -265,5 +311,33 @@ public class RealEngineIntegrationTests : IAsyncLifetime
     {
         var response = await Ipc.EngineIpcClient.TrySendAsync("status", "lt-no-such-pipe", connectTimeoutMs: 200);
         Assert.Null(response);
+    }
+
+    [Fact]
+    public async Task Watchdog_DetectsStall_AndReconnects()
+    {
+        var stale = TimeSpan.FromSeconds(2);
+        int factoryCalls = 0;
+
+        await using var engine = new RealTranscriptionEngine(
+            new FakeTranscriptionService(),
+            micFactory: () =>
+            {
+                return Interlocked.Increment(ref factoryCalls) == 1
+                    ? (IAudioCaptureService)new StallingCaptureService(AudioSourceType.Microphone, TimeSpan.FromMilliseconds(200))
+                    : new FakeCaptureService(AudioSourceType.Microphone);
+            },
+            captureStaleThreshold: stale);
+
+        await engine.StartAsync(MakeOptions());
+
+        // Wait: stale threshold (2s) + poll interval (max(1, 2/3)=1s) + buffer (1.5s)
+        await Task.Delay(TimeSpan.FromSeconds(5));
+
+        var status = await engine.GetStatusAsync();
+        await engine.StopAsync();
+
+        Assert.Contains("stalled", status.Error ?? "", StringComparison.OrdinalIgnoreCase);
+        Assert.Equal(2, factoryCalls);
     }
 }
