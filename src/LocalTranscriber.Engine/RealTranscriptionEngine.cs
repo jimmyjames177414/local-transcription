@@ -807,6 +807,12 @@ public sealed class RealTranscriptionEngine : ITranscriptionEngine, IAsyncDispos
     public Task<IReadOnlyList<SessionSpeakerInfo>> ListSessionSpeakersAsync(CancellationToken cancellationToken = default)
         => Task.FromResult(_registry?.Snapshot() ?? (IReadOnlyList<SessionSpeakerInfo>)Array.Empty<SessionSpeakerInfo>());
 
+    public async Task UpdateSessionTitleAsync(string sessionId, string? title, CancellationToken cancellationToken = default)
+    {
+        if (_sessionStore is not null)
+            await _sessionStore.UpdateTitleAsync(sessionId, title, cancellationToken).ConfigureAwait(false);
+    }
+
     public async Task<bool> NameSessionSpeakerAsync(string sessionLabel, string newName, CancellationToken cancellationToken = default)
     {
         var registry = _registry;

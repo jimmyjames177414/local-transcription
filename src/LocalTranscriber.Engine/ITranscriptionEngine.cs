@@ -14,4 +14,6 @@ public interface ITranscriptionEngine
     Task<IReadOnlyList<SessionSpeakerInfo>> ListSessionSpeakersAsync(CancellationToken cancellationToken = default);
     /// <summary>Enrolls a session speaker by name from their captured voice embeddings and writes an alias. Returns false when no session is active or the label has no captured embeddings.</summary>
     Task<bool> NameSessionSpeakerAsync(string sessionLabel, string newName, CancellationToken cancellationToken = default);
+    /// <summary>Persists a human-readable title for a session. Silently no-ops when storage is unavailable.</summary>
+    Task UpdateSessionTitleAsync(string sessionId, string? title, CancellationToken cancellationToken = default);
 }
