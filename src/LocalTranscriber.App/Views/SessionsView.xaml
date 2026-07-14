@@ -1,0 +1,305 @@
+<UserControl x:Class="LocalTranscriber.App.Views.SessionsView"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:conv="clr-namespace:LocalTranscriber.App.Converters">
+    <!-- Sessions screen per design 4j: browse, manage and load saved meetings. -->
+    <UserControl.Resources>
+        <BooleanToVisibilityConverter x:Key="BoolToVisibility" />
+        <conv:InverseBooleanToVisibilityConverter x:Key="InverseBoolToVisibility" />
+        <CollectionViewSource x:Key="GroupedItems" Source="{Binding SessionsPanel.Items}">
+            <CollectionViewSource.GroupDescriptions>
+                <PropertyGroupDescription PropertyName="DayGroup" />
+            </CollectionViewSource.GroupDescriptions>
+        </CollectionViewSource>
+    </UserControl.Resources>
+
+    <Grid>
+        <Grid.ColumnDefinitions>
+            <ColumnDefinition Width="400" />
+            <ColumnDefinition Width="*" />
+        </Grid.ColumnDefinitions>
+
+        <!-- ═══ Session list ═══ -->
+        <Grid Grid.Column="0">
+            <Grid.RowDefinitions>
+                <RowDefinition Height="Auto" />
+                <RowDefinition Height="*" />
+                <RowDefinition Height="Auto" />
+            </Grid.RowDefinitions>
+
+            <!-- Search + filter -->
+            <Grid Grid.Row="0" Margin="14,12,14,10">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="Auto" />
+                </Grid.ColumnDefinitions>
+                <Grid Grid.Column="0">
+                    <TextBox Style="{StaticResource TextInputStyle}" MinHeight="32" FontSize="11.5"
+                             Text="{Binding SessionsPanel.SearchText, UpdateSourceTrigger=PropertyChanged}" />
+                    <TextBlock Text="⌕ Search transcripts &amp; titles…" FontSize="11.5" Foreground="{StaticResource Brush.Text.Hint}"
+                               Margin="12,0,0,0" VerticalAlignment="Center" IsHitTestVisible="False">
+                        <TextBlock.Style>
+                            <Style TargetType="TextBlock">
+                                <Setter Property="Visibility" Value="Collapsed" />
+                                <Style.Triggers>
+                                    <DataTrigger Binding="{Binding SessionsPanel.SearchText}" Value="">
+                                        <Setter Property="Visibility" Value="Visible" />
+                                    </DataTrigger>
+                                </Style.Triggers>
+                            </Style>
+                        </TextBlock.Style>
+                    </TextBlock>
+                </Grid>
+                <ComboBox Grid.Column="1" Width="110" Margin="8,0,0,0" FontSize="11"
+                          Style="{StaticResource ComboBoxStyle}"
+                          ItemsSource="{Binding SessionsPanel.Filters}"
+                          SelectedIndex="{Binding SessionsPanel.SelectedFilterIndex}" />
+            </Grid>
+
+            <!-- Day-grouped rows -->
+            <Border Grid.Row="1" BorderBrush="{StaticResource Brush.Stroke}" BorderThickness="0,0,1,0">
+                <ListBox ItemsSource="{Binding Source={StaticResource GroupedItems}}"
+                         SelectedItem="{Binding SessionsPanel.Selected}"
+                         Background="Transparent" BorderThickness="0" Padding="10,0"
+                         ScrollViewer.HorizontalScrollBarVisibility="Disabled"
+                         VirtualizingStackPanel.IsVirtualizing="True">
+                    <ListBox.GroupStyle>
+                        <GroupStyle>
+                            <GroupStyle.HeaderTemplate>
+                                <DataTemplate>
+                                    <TextBlock Text="{Binding Name}" FontSize="9.5" FontWeight="SemiBold"
+                                               Foreground="{StaticResource Brush.Text.Faint}" Margin="6,8,0,3" />
+                                </DataTemplate>
+                            </GroupStyle.HeaderTemplate>
+                        </GroupStyle>
+                    </ListBox.GroupStyle>
+                    <ListBox.ItemContainerStyle>
+                        <Style TargetType="ListBoxItem">
+                            <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+                            <Setter Property="Margin" Value="0,0,0,5" />
+                            <Setter Property="Cursor" Value="Hand" />
+                            <Setter Property="Template">
+                                <Setter.Value>
+                                    <ControlTemplate TargetType="ListBoxItem">
+                                        <Border x:Name="Bd" CornerRadius="10" BorderThickness="1" BorderBrush="Transparent" Padding="12,10">
+                                            <ContentPresenter />
+                                        </Border>
+                                        <ControlTemplate.Triggers>
+                                            <Trigger Property="IsSelected" Value="True">
+                                                <Setter TargetName="Bd" Property="Background" Value="#FF26282E" />
+                                                <Setter TargetName="Bd" Property="BorderBrush" Value="{StaticResource Brush.Accent}" />
+                                            </Trigger>
+                                            <MultiTrigger>
+                                                <MultiTrigger.Conditions>
+                                                    <Condition Property="IsMouseOver" Value="True" />
+                                                    <Condition Property="IsSelected" Value="False" />
+                                                </MultiTrigger.Conditions>
+                                                <Setter TargetName="Bd" Property="Background" Value="{StaticResource Brush.Bg.Chrome}" />
+                                            </MultiTrigger>
+                                        </ControlTemplate.Triggers>
+                                    </ControlTemplate>
+                                </Setter.Value>
+                            </Setter>
+                        </Style>
+                    </ListBox.ItemContainerStyle>
+                    <ListBox.ItemTemplate>
+                        <DataTemplate>
+                            <StackPanel>
+                                <Grid>
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="*" />
+                                        <ColumnDefinition Width="Auto" />
+                                    </Grid.ColumnDefinitions>
+                                    <TextBlock Grid.Column="0" Text="{Binding Title}" FontSize="12.5" FontWeight="SemiBold"
+                                               Foreground="{StaticResource Brush.Text.Body}" TextTrimming="CharacterEllipsis" />
+                                    <TextBlock Grid.Column="1" Text="{Binding TimeAndDuration}" FontFamily="{StaticResource Font.Mono}"
+                                               FontSize="10" Foreground="{StaticResource Brush.Text.Faint}" Margin="8,0,0,0" />
+                                </Grid>
+                                <Grid Margin="0,4,0,0">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="*" />
+                                        <ColumnDefinition Width="Auto" />
+                                        <ColumnDefinition Width="Auto" />
+                                    </Grid.ColumnDefinitions>
+                                    <StackPanel Grid.Column="0" Orientation="Horizontal">
+                                        <ItemsControl ItemsSource="{Binding Participants}">
+                                            <ItemsControl.ItemsPanel>
+                                                <ItemsPanelTemplate>
+                                                    <StackPanel Orientation="Horizontal" />
+                                                </ItemsPanelTemplate>
+                                            </ItemsControl.ItemsPanel>
+                                            <ItemsControl.ItemTemplate>
+                                                <DataTemplate>
+                                                    <TextBlock Text="{Binding Name}" FontSize="10" Foreground="{Binding Color}" Margin="0,0,6,0" />
+                                                </DataTemplate>
+                                            </ItemsControl.ItemTemplate>
+                                        </ItemsControl>
+                                        <TextBlock Text="{Binding ExtraParticipants}" FontSize="10" Foreground="{StaticResource Brush.Text.Hint}" />
+                                    </StackPanel>
+                                    <Border Grid.Column="1" CornerRadius="3" Background="{StaticResource Brush.Privacy.Cloud.Bg}" Padding="5,1"
+                                            Margin="0,0,6,0" VerticalAlignment="Center"
+                                            Visibility="{Binding HasNotes, Converter={StaticResource BoolToVisibility}}">
+                                        <TextBlock Text="✎ notes" FontSize="8.5" FontWeight="SemiBold" Foreground="{StaticResource Brush.Privacy.Cloud.Text}" />
+                                    </Border>
+                                    <StackPanel Grid.Column="2" Orientation="Horizontal">
+                                        <Border CornerRadius="3" Padding="5,1" Margin="0,0,6,0" VerticalAlignment="Center"
+                                                Visibility="{Binding MinutesBadgeVisible, Converter={StaticResource BoolToVisibility}}">
+                                            <Border.Style>
+                                                <Style TargetType="Border">
+                                                    <Setter Property="Background" Value="{StaticResource Brush.Privacy.Cloud.Bg}" />
+                                                    <Style.Triggers>
+                                                        <DataTrigger Binding="{Binding IsSynced}" Value="True">
+                                                            <Setter Property="Background" Value="{StaticResource Brush.Privacy.Local.Bg}" />
+                                                        </DataTrigger>
+                                                    </Style.Triggers>
+                                                </Style>
+                                            </Border.Style>
+                                            <TextBlock Text="{Binding MinutesBadgeText}" FontSize="8.5" FontWeight="SemiBold">
+                                                <TextBlock.Style>
+                                                    <Style TargetType="TextBlock">
+                                                        <Setter Property="Foreground" Value="{StaticResource Brush.Privacy.Cloud.Text}" />
+                                                        <Style.Triggers>
+                                                            <DataTrigger Binding="{Binding IsSynced}" Value="True">
+                                                                <Setter Property="Foreground" Value="{StaticResource Brush.Privacy.Local.Text}" />
+                                                            </DataTrigger>
+                                                        </Style.Triggers>
+                                                    </Style>
+                                                </TextBlock.Style>
+                                            </TextBlock>
+                                        </Border>
+                                        <TextBlock Text="{Binding FileSizeText}" FontFamily="{StaticResource Font.Mono}" FontSize="9.5"
+                                                   Foreground="{StaticResource Brush.Text.Faint}" VerticalAlignment="Center" />
+                                    </StackPanel>
+                                </Grid>
+                            </StackPanel>
+                        </DataTemplate>
+                    </ListBox.ItemTemplate>
+                </ListBox>
+            </Border>
+
+            <!-- Footer -->
+            <Border Grid.Row="2" BorderBrush="{StaticResource Brush.Stroke.Soft}" BorderThickness="0,1,1,0" Padding="16,8">
+                <Button Content="{Binding SessionsPanel.FooterText}" Command="{Binding SessionsPanel.OpenFolderCommand}"
+                        Cursor="Hand" Background="Transparent" BorderThickness="0" Padding="0" HorizontalAlignment="Left"
+                        FontSize="10" Foreground="{StaticResource Brush.Text.Faint}" ToolTip="Open the transcripts folder" />
+            </Border>
+        </Grid>
+
+        <!-- ═══ Session detail ═══ -->
+        <Grid Grid.Column="1" Background="{StaticResource Brush.Bg.Panel}"
+              Visibility="{Binding SessionsPanel.HasSelection, Converter={StaticResource BoolToVisibility}}">
+            <Grid.RowDefinitions>
+                <RowDefinition Height="Auto" />
+                <RowDefinition Height="*" />
+                <RowDefinition Height="Auto" />
+            </Grid.RowDefinitions>
+
+            <!-- Header: title + actions -->
+            <Border Grid.Row="0" BorderBrush="{StaticResource Brush.Stroke.Soft}" BorderThickness="0,0,0,1" Padding="18,14,18,12">
+                <Grid>
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="Auto" />
+                    </Grid.ColumnDefinitions>
+                    <StackPanel Grid.Column="0">
+                        <StackPanel Orientation="Horizontal"
+                                    Visibility="{Binding SessionsPanel.IsRenaming, Converter={StaticResource InverseBoolToVisibility}}">
+                            <TextBlock Text="{Binding SessionsPanel.SelectedTitle}" FontSize="15" FontWeight="SemiBold"
+                                       Foreground="{StaticResource Brush.Text.Title}" VerticalAlignment="Center" />
+                            <Button Content="✎" FontSize="11" Foreground="{StaticResource Brush.Text.Hint}" Cursor="Hand"
+                                    Background="Transparent" BorderThickness="0" Margin="9,0,0,0" Padding="2"
+                                    Command="{Binding SessionsPanel.BeginRenameCommand}" ToolTip="Rename session" />
+                        </StackPanel>
+                        <StackPanel Orientation="Horizontal"
+                                    Visibility="{Binding SessionsPanel.IsRenaming, Converter={StaticResource BoolToVisibility}}">
+                            <TextBox Style="{StaticResource TextInputStyle}" Width="260" FontSize="13"
+                                     Text="{Binding SessionsPanel.EditTitle, UpdateSourceTrigger=PropertyChanged}"
+                                     KeyDown="RenameBox_KeyDown" />
+                            <Button Content="Save" Style="{StaticResource PrimaryButtonStyle}" Padding="12,4" FontSize="11" Margin="8,0,0,0"
+                                    Command="{Binding SessionsPanel.CommitRenameCommand}" />
+                            <Button Content="Cancel" Background="Transparent" BorderThickness="0" FontSize="11" Cursor="Hand"
+                                    Foreground="{StaticResource Brush.Text.Muted}" Margin="4,0,0,0"
+                                    Command="{Binding SessionsPanel.CancelRenameCommand}" />
+                        </StackPanel>
+                        <TextBlock Text="{Binding SessionsPanel.MetaText}" FontSize="10.5" Foreground="{StaticResource Brush.Text.Muted}" Margin="0,3,0,0" />
+                    </StackPanel>
+                    <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Top">
+                        <Button Content="Load session" Style="{StaticResource PrimaryButtonStyle}" Padding="15,7" FontSize="11.5"
+                                Command="{Binding SessionsPanel.LoadCommand}"
+                                ToolTip="Open in the Meeting screen for review — search it and ask the assistant about it" />
+                        <Button Content="Open folder" Style="{StaticResource SubtleButtonStyle}" Padding="12,7" FontSize="11.5" Margin="7,0,0,0"
+                                Command="{Binding SessionsPanel.OpenFolderCommand}" />
+                        <Button Content="Export ▾" Style="{StaticResource SubtleButtonStyle}" Padding="12,7" FontSize="11.5" Margin="7,0,0,0"
+                                Command="{Binding SessionsPanel.ExportCommand}" ToolTip="Export as minutes markdown" />
+                        <Button Content="🗑" Style="{StaticResource DangerButtonStyle}" Padding="10,7" FontSize="11.5" Margin="7,0,0,0"
+                                Command="{Binding SessionsPanel.DeleteCommand}" ToolTip="Delete session…" />
+                    </StackPanel>
+                </Grid>
+            </Border>
+
+            <!-- Preview + notes rail -->
+            <Grid Grid.Row="1">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="230" />
+                </Grid.ColumnDefinitions>
+
+                <Grid Grid.Column="0" Margin="18,12">
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto" />
+                        <RowDefinition Height="*" />
+                        <RowDefinition Height="Auto" />
+                    </Grid.RowDefinitions>
+                    <TextBlock Grid.Row="0" Text="TRANSCRIPT PREVIEW — READ-ONLY" FontSize="9.5" FontWeight="SemiBold"
+                               Foreground="{StaticResource Brush.Text.Faint}" Margin="0,0,0,7" />
+                    <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto">
+                        <ItemsControl ItemsSource="{Binding SessionsPanel.PreviewRows}"
+                                      ItemTemplate="{StaticResource TranscriptRowTemplate}" />
+                    </ScrollViewer>
+                    <TextBlock Grid.Row="2" Text="Load the session to scroll everything, search inside it, and ask the assistant about it"
+                               FontSize="10" Foreground="{StaticResource Brush.Text.Faint}" HorizontalAlignment="Center" Margin="0,8,0,0" />
+                </Grid>
+
+                <Border Grid.Column="1" BorderBrush="{StaticResource Brush.Stroke.Soft}" BorderThickness="1,0,0,0"
+                        Background="{StaticResource Brush.Bg.Notes}" Padding="14,12">
+                    <StackPanel>
+                        <TextBlock Text="✎ NOTES FROM THIS MEETING" FontSize="9.5" FontWeight="SemiBold"
+                                   Foreground="{StaticResource Brush.Privacy.Cloud.Text}" Margin="0,0,0,8" />
+                        <TextBlock Text="DECISIONS" FontSize="10" FontWeight="SemiBold" Foreground="{StaticResource Brush.Privacy.Cloud.Text}" />
+                        <ItemsControl ItemsSource="{Binding SessionsPanel.NotesDecisions}">
+                            <ItemsControl.ItemTemplate>
+                                <DataTemplate>
+                                    <TextBlock FontSize="11" LineHeight="18" TextWrapping="Wrap" Foreground="{StaticResource Brush.Text.Body}">
+                                        <Run Text="· " /><Run Text="{Binding Mode=OneWay}" />
+                                    </TextBlock>
+                                </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                        </ItemsControl>
+                        <TextBlock Text="ACTION ITEMS" FontSize="10" FontWeight="SemiBold" Foreground="{StaticResource Brush.Privacy.Cloud.Text}" Margin="0,8,0,0" />
+                        <ItemsControl ItemsSource="{Binding SessionsPanel.NotesActionItems}">
+                            <ItemsControl.ItemTemplate>
+                                <DataTemplate>
+                                    <TextBlock FontSize="11" LineHeight="18" TextWrapping="Wrap" Foreground="{StaticResource Brush.Text.Body}">
+                                        <Run Text="· " /><Run Text="{Binding Mode=OneWay}" />
+                                    </TextBlock>
+                                </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                        </ItemsControl>
+                    </StackPanel>
+                </Border>
+            </Grid>
+
+            <!-- Delete semantics footer -->
+            <Border Grid.Row="2" Background="{StaticResource Brush.Danger.Bg}" BorderBrush="{StaticResource Brush.Stroke.Soft}"
+                    BorderThickness="0,1,0,0" Padding="18,9">
+                <TextBlock FontSize="10.5" Foreground="{StaticResource Brush.Text.Muted}" TextWrapping="Wrap">
+                    <Run Text="Delete" FontWeight="SemiBold" Foreground="#FFF0B0B0" /><Run Text=" removes transcript, jsonl and notes from disk — a confirm dialog lists the exact files first. Voice memory is unaffected." />
+                </TextBlock>
+            </Border>
+        </Grid>
+
+        <TextBlock Grid.Column="1" Text="{Binding SessionsPanel.StatusText}" FontSize="10.5"
+                   Foreground="{StaticResource Brush.Text.Hint}" Margin="18,0,0,10"
+                   VerticalAlignment="Bottom" HorizontalAlignment="Left" />
+    </Grid>
+</UserControl>

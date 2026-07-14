@@ -9,3 +9,12 @@ models/**/*.onnx
 models/**/*.gguf
 *.wav
 TestResults/
+tail-logs/
+!tail-logs/.gitkeep
+
+# claude-obsidian wiki vault (personal knowledge base, own git repo)
+.local/
+
+# machine-specific private guidance (not shared across machines)
+CLAUDE.local.md
+.claude/settings.local.json

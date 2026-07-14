@@ -16,4 +16,7 @@ public sealed record TranscriptionSessionOptions
     public string? Language { get; init; }
     public int ChunkSeconds { get; init; } = 10;
     public int OverlapMs { get; init; } = 500;
+
+    /// <summary>When true, non-speech annotations (e.g. "(engine revving)", "[Music]") are dropped.</summary>
+    public bool FilterNonSpeech { get; init; } = true;
 }

@@ -274,6 +274,18 @@ public sealed class FakeTranscriptionEngine : ITranscriptionEngine, IAsyncDispos
         }
     }
 
+    public Task<IReadOnlyList<SessionSpeakerInfo>> ListSessionSpeakersAsync(CancellationToken cancellationToken = default)
+        => Task.FromResult<IReadOnlyList<SessionSpeakerInfo>>(Array.Empty<SessionSpeakerInfo>());
+
+    public Task<bool> NameSessionSpeakerAsync(string sessionLabel, string newName, CancellationToken cancellationToken = default)
+        => Task.FromResult(false);
+
+    public Task<bool> RenameKnownSpeakerAsync(string oldName, string newName, CancellationToken cancellationToken = default)
+        => Task.FromResult(false);
+
+    public Task UpdateSessionTitleAsync(string sessionId, string? title, CancellationToken cancellationToken = default)
+        => Task.CompletedTask;
+
     public async ValueTask DisposeAsync()
     {
         await StopAsync().ConfigureAwait(false);

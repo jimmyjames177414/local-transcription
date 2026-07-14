@@ -42,13 +42,28 @@ public sealed class ConfigService
     }
 
     /// <summary>
-    /// Sets a config property by its camelCase JSON name (e.g. "transcriptFolder").
+    /// Sets a config property by its camelCase JSON name. Dot paths reach nested
+    /// objects, e.g. "agent.mode" or "agent.openAI.model".
     /// Returns false when the key does not exist or the value cannot be parsed.
     /// </summary>
     public bool TrySet(AppConfig config, string key, string value)
     {
-        var property = typeof(AppConfig).GetProperties()
-            .FirstOrDefault(p => string.Equals(p.Name, key, StringComparison.OrdinalIgnoreCase));
+        object target = config;
+        string[] parts = key.Split('.');
+
+        for (int i = 0; i < parts.Length - 1; i++)
+        {
+            var nested = target.GetType().GetProperties()
+                .FirstOrDefault(p => string.Equals(p.Name, parts[i], StringComparison.OrdinalIgnoreCase));
+            if (nested is null || nested.GetValue(target) is not object child)
+            {
+                return false;
+            }
+            target = child;
+        }
+
+        var property = target.GetType().GetProperties()
+            .FirstOrDefault(p => string.Equals(p.Name, parts[^1], StringComparison.OrdinalIgnoreCase));
         if (property is null || !property.CanWrite)
         {
             return false;
@@ -64,10 +79,14 @@ public sealed class ConfigService
                 var t when t == typeof(double) => double.Parse(value),
                 _ => throw new NotSupportedException($"Unsupported config type {property.PropertyType.Name}")
             };
-            property.SetValue(config, parsed);
+            property.SetValue(target, parsed);
             return true;
         }
         catch (FormatException)
+        {
+            return false;
+        }
+        catch (NotSupportedException)
         {
             return false;
         }

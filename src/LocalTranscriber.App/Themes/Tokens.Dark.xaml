@@ -1,0 +1,136 @@
+<!-- Design tokens (dark) from the approved Claude Design spec (4i). Keys are shared with
+     Tokens.Light.xaml so themes can swap by replacing this merged dictionary. -->
+<ResourceDictionary xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+                    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+
+    <!-- Fonts -->
+    <FontFamily x:Key="Font.Ui">Segoe UI Variable, Segoe UI</FontFamily>
+    <FontFamily x:Key="Font.Mono">Cascadia Mono, Consolas, Courier New</FontFamily>
+
+    <!-- Backgrounds -->
+    <Color x:Key="Color.Bg.Window">#FF1E2024</Color>
+    <SolidColorBrush x:Key="Brush.Bg.Window" Color="{StaticResource Color.Bg.Window}" />
+    <Color x:Key="Color.Bg.Chrome">#FF24262B</Color>
+    <SolidColorBrush x:Key="Brush.Bg.Chrome" Color="{StaticResource Color.Bg.Chrome}" />
+    <Color x:Key="Color.Bg.Panel">#FF1A1C20</Color>
+    <SolidColorBrush x:Key="Brush.Bg.Panel" Color="{StaticResource Color.Bg.Panel}" />
+    <Color x:Key="Color.Bg.Notes">#FF1C1E23</Color>
+    <SolidColorBrush x:Key="Brush.Bg.Notes" Color="{StaticResource Color.Bg.Notes}" />
+    <Color x:Key="Color.Bg.Footer">#FF222429</Color>
+    <SolidColorBrush x:Key="Brush.Bg.Footer" Color="{StaticResource Color.Bg.Footer}" />
+    <Color x:Key="Color.Bg.Input">#FF24262B</Color>
+    <SolidColorBrush x:Key="Brush.Bg.Input" Color="{StaticResource Color.Bg.Input}" />
+
+    <!-- Surfaces & strokes -->
+    <Color x:Key="Color.Surface.Hi">#FF33363C</Color>
+    <SolidColorBrush x:Key="Brush.Surface.Hi" Color="{StaticResource Color.Surface.Hi}" />
+    <Color x:Key="Color.Stroke">#FF303338</Color>
+    <SolidColorBrush x:Key="Brush.Stroke" Color="{StaticResource Color.Stroke}" />
+    <Color x:Key="Color.Stroke.Soft">#FF2B2E33</Color>
+    <SolidColorBrush x:Key="Brush.Stroke.Soft" Color="{StaticResource Color.Stroke.Soft}" />
+    <Color x:Key="Color.Stroke.Hi">#FF3A3D43</Color>
+    <SolidColorBrush x:Key="Brush.Stroke.Hi" Color="{StaticResource Color.Stroke.Hi}" />
+
+    <!-- Accent -->
+    <Color x:Key="Color.Accent">#FF3D6FE0</Color>
+    <SolidColorBrush x:Key="Brush.Accent" Color="{StaticResource Color.Accent}" />
+    <Color x:Key="Color.Accent.Deep">#FF3260C4</Color>
+    <SolidColorBrush x:Key="Brush.Accent.Deep" Color="{StaticResource Color.Accent.Deep}" />
+    <Color x:Key="Color.Accent.Text">#FF9BB8F2</Color>
+    <SolidColorBrush x:Key="Brush.Accent.Text" Color="{StaticResource Color.Accent.Text}" />
+    <Color x:Key="Color.Accent.Soft">#FF7EA8F0</Color>
+    <SolidColorBrush x:Key="Brush.Accent.Soft" Color="{StaticResource Color.Accent.Soft}" />
+    <Color x:Key="Color.Accent.Bg">#243D6FE0</Color>
+    <SolidColorBrush x:Key="Brush.Accent.Bg" Color="{StaticResource Color.Accent.Bg}" />
+    <Color x:Key="Color.Accent.Border">#593D6FE0</Color>
+    <SolidColorBrush x:Key="Brush.Accent.Border" Color="{StaticResource Color.Accent.Border}" />
+    <LinearGradientBrush x:Key="Brush.Accent.Gradient" StartPoint="0,0" EndPoint="0,1">
+        <GradientStop Color="#FF3D6FE0" Offset="0" />
+        <GradientStop Color="#FF3260C4" Offset="1" />
+    </LinearGradientBrush>
+
+    <!-- Privacy -->
+    <Color x:Key="Color.Privacy.Local">#FF6FCF97</Color>
+    <SolidColorBrush x:Key="Brush.Privacy.Local" Color="{StaticResource Color.Privacy.Local}" />
+    <Color x:Key="Color.Privacy.Local.Text">#FF8FD8B0</Color>
+    <SolidColorBrush x:Key="Brush.Privacy.Local.Text" Color="{StaticResource Color.Privacy.Local.Text}" />
+    <Color x:Key="Color.Privacy.Local.Bg">#1A54B27E</Color>
+    <SolidColorBrush x:Key="Brush.Privacy.Local.Bg" Color="{StaticResource Color.Privacy.Local.Bg}" />
+    <Color x:Key="Color.Privacy.Local.Border">#4054B27E</Color>
+    <SolidColorBrush x:Key="Brush.Privacy.Local.Border" Color="{StaticResource Color.Privacy.Local.Border}" />
+    <Color x:Key="Color.Privacy.Cloud">#FFE0B060</Color>
+    <SolidColorBrush x:Key="Brush.Privacy.Cloud" Color="{StaticResource Color.Privacy.Cloud}" />
+    <Color x:Key="Color.Privacy.Cloud.Text">#FFDCC08A</Color>
+    <SolidColorBrush x:Key="Brush.Privacy.Cloud.Text" Color="{StaticResource Color.Privacy.Cloud.Text}" />
+    <Color x:Key="Color.Privacy.Cloud.Bg">#14E0B060</Color>
+    <SolidColorBrush x:Key="Brush.Privacy.Cloud.Bg" Color="{StaticResource Color.Privacy.Cloud.Bg}" />
+    <Color x:Key="Color.Privacy.Cloud.Border">#40E0B060</Color>
+    <SolidColorBrush x:Key="Brush.Privacy.Cloud.Border" Color="{StaticResource Color.Privacy.Cloud.Border}" />
+
+    <!-- Recording / danger -->
+    <Color x:Key="Color.Rec">#FFD85454</Color>
+    <SolidColorBrush x:Key="Brush.Rec" Color="{StaticResource Color.Rec}" />
+    <Color x:Key="Color.Rec.Bg">#24D85454</Color>
+    <SolidColorBrush x:Key="Brush.Rec.Bg" Color="{StaticResource Color.Rec.Bg}" />
+    <Color x:Key="Color.Rec.Border">#59D85454</Color>
+    <SolidColorBrush x:Key="Brush.Rec.Border" Color="{StaticResource Color.Rec.Border}" />
+    <Color x:Key="Color.Rec.Text">#FFF0A0A0</Color>
+    <SolidColorBrush x:Key="Brush.Rec.Text" Color="{StaticResource Color.Rec.Text}" />
+    <Color x:Key="Color.Danger.Deep">#FFC24343</Color>
+    <SolidColorBrush x:Key="Brush.Danger.Deep" Color="{StaticResource Color.Danger.Deep}" />
+    <Color x:Key="Color.Danger.Border">#FF4A3236</Color>
+    <SolidColorBrush x:Key="Brush.Danger.Border" Color="{StaticResource Color.Danger.Border}" />
+    <Color x:Key="Color.Danger.Text">#FFEE8888</Color>
+    <SolidColorBrush x:Key="Brush.Danger.Text" Color="{StaticResource Color.Danger.Text}" />
+    <Color x:Key="Color.Danger.Bg">#14D85454</Color>
+    <SolidColorBrush x:Key="Brush.Danger.Bg" Color="{StaticResource Color.Danger.Bg}" />
+    <LinearGradientBrush x:Key="Brush.Rec.Gradient" StartPoint="0,0" EndPoint="0,1">
+        <GradientStop Color="#FFD85454" Offset="0" />
+        <GradientStop Color="#FFBC4040" Offset="1" />
+    </LinearGradientBrush>
+
+    <!-- Uncertain speaker -->
+    <Color x:Key="Color.Uncertain">#FFBD8FD6</Color>
+    <SolidColorBrush x:Key="Brush.Uncertain" Color="{StaticResource Color.Uncertain}" />
+    <Color x:Key="Color.Uncertain.Text">#FF8A6A9E</Color>
+    <SolidColorBrush x:Key="Brush.Uncertain.Text" Color="{StaticResource Color.Uncertain.Text}" />
+    <Color x:Key="Color.Uncertain.Bg">#0DBE8CDC</Color>
+    <SolidColorBrush x:Key="Brush.Uncertain.Bg" Color="{StaticResource Color.Uncertain.Bg}" />
+
+    <!-- Speaker cycle (Me is always Speaker.Me; others cycle 1-6 by enrollment order) -->
+    <Color x:Key="Color.Speaker.Me">#FF6FA3E8</Color>
+    <SolidColorBrush x:Key="Brush.Speaker.Me" Color="{StaticResource Color.Speaker.Me}" />
+    <Color x:Key="Color.Speaker.1">#FFDFB35E</Color>
+    <SolidColorBrush x:Key="Brush.Speaker.1" Color="{StaticResource Color.Speaker.1}" />
+    <Color x:Key="Color.Speaker.2">#FF62BFAE</Color>
+    <SolidColorBrush x:Key="Brush.Speaker.2" Color="{StaticResource Color.Speaker.2}" />
+    <Color x:Key="Color.Speaker.3">#FFE8837A</Color>
+    <SolidColorBrush x:Key="Brush.Speaker.3" Color="{StaticResource Color.Speaker.3}" />
+    <Color x:Key="Color.Speaker.4">#FFA88FD6</Color>
+    <SolidColorBrush x:Key="Brush.Speaker.4" Color="{StaticResource Color.Speaker.4}" />
+    <Color x:Key="Color.Speaker.5">#FF6FC3CF</Color>
+    <SolidColorBrush x:Key="Brush.Speaker.5" Color="{StaticResource Color.Speaker.5}" />
+    <Color x:Key="Color.Speaker.6">#FFD69A62</Color>
+    <SolidColorBrush x:Key="Brush.Speaker.6" Color="{StaticResource Color.Speaker.6}" />
+
+    <!-- Text tiers -->
+    <Color x:Key="Color.Text.Title">#FFF0F2F6</Color>
+    <SolidColorBrush x:Key="Brush.Text.Title" Color="{StaticResource Color.Text.Title}" />
+    <Color x:Key="Color.Text.Primary">#FFE8EAED</Color>
+    <SolidColorBrush x:Key="Brush.Text.Primary" Color="{StaticResource Color.Text.Primary}" />
+    <Color x:Key="Color.Text.Body">#FFC9CED6</Color>
+    <SolidColorBrush x:Key="Brush.Text.Body" Color="{StaticResource Color.Text.Body}" />
+    <Color x:Key="Color.Text.Muted">#FF8A8E96</Color>
+    <SolidColorBrush x:Key="Brush.Text.Muted" Color="{StaticResource Color.Text.Muted}" />
+    <Color x:Key="Color.Text.Hint">#FF6D7178</Color>
+    <SolidColorBrush x:Key="Brush.Text.Hint" Color="{StaticResource Color.Text.Hint}" />
+    <Color x:Key="Color.Text.Faint">#FF565B63</Color>
+    <SolidColorBrush x:Key="Brush.Text.Faint" Color="{StaticResource Color.Text.Faint}" />
+    <Color x:Key="Color.Text.Timestamp">#FF4A515C</Color>
+    <SolidColorBrush x:Key="Brush.Text.Timestamp" Color="{StaticResource Color.Text.Timestamp}" />
+    <Color x:Key="Color.Nav.Inactive">#FF9A9EA6</Color>
+    <SolidColorBrush x:Key="Brush.Nav.Inactive" Color="{StaticResource Color.Nav.Inactive}" />
+    <Color x:Key="Color.Caption.Fg">#FF7A7E86</Color>
+    <SolidColorBrush x:Key="Brush.Caption.Fg" Color="{StaticResource Color.Caption.Fg}" />
+
+</ResourceDictionary>

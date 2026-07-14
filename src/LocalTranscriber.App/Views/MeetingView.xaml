@@ -1,0 +1,856 @@
+<UserControl x:Class="LocalTranscriber.App.Views.MeetingView"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:behaviors="clr-namespace:LocalTranscriber.App.Behaviors"
+             xmlns:conv="clr-namespace:LocalTranscriber.App.Converters">
+    <UserControl.Resources>
+        <BooleanToVisibilityConverter x:Key="BoolToVisibility" />
+        <conv:EnumMatchVisibilityConverter x:Key="EnumMatchVisibility" />
+        <conv:NewMarkConverter x:Key="NewMarkConverter" />
+        <conv:InverseBooleanToVisibilityConverter x:Key="InverseBoolToVisibility" />
+        <conv:InverseBooleanConverter x:Key="InverseBool" />
+        <conv:CheckMarkConverter x:Key="CheckMarkConverter" />
+        <conv:CheckBrushConverter x:Key="CheckBrushConverter" />
+    </UserControl.Resources>
+    <Grid SizeChanged="Root_SizeChanged">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="*" />
+        </Grid.RowDefinitions>
+
+        <!-- Review banner (4l): shown while viewing an archived session -->
+        <Border Grid.Row="0" Background="{StaticResource Brush.Accent.Bg}"
+                BorderBrush="{StaticResource Brush.Accent.Border}" BorderThickness="0,0,0,1" Padding="16,7"
+                Visibility="{Binding Session.IsReviewing, Converter={StaticResource BoolToVisibility}}">
+            <Grid>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="Auto" />
+                    <ColumnDefinition Width="Auto" />
+                </Grid.ColumnDefinitions>
+                <TextBlock Grid.Column="0" Text="{Binding Session.ReviewMetaText}" FontSize="11.5"
+                           Foreground="{StaticResource Brush.Text.Body}" VerticalAlignment="Center" TextTrimming="CharacterEllipsis" />
+                <Button Grid.Column="1" Content="✕ Close session" Style="{StaticResource SubtleButtonStyle}" Padding="13,5" FontSize="11"
+                        Command="{Binding Session.CloseReviewCommand}" Margin="10,0,0,0" />
+                <Button Grid.Column="2" Content="● Start new recording" Style="{StaticResource PrimaryButtonStyle}"
+                        Background="{StaticResource Brush.Rec.Gradient}" Padding="13,5" FontSize="11"
+                        Command="{Binding Session.StartCommand}" Margin="7,0,0,0" />
+            </Grid>
+        </Border>
+
+        <Grid Grid.Row="1">
+        <Grid.ColumnDefinitions>
+            <ColumnDefinition x:Name="TranscriptCol" Width="368" />
+            <ColumnDefinition x:Name="ChatCol" Width="*" MinWidth="300" />
+            <ColumnDefinition x:Name="NotesCol" Width="248" />
+        </Grid.ColumnDefinitions>
+
+        <!-- ═══ Transcript column (4a) ═══ -->
+        <Grid x:Name="TranscriptColumn" Grid.Column="0">
+            <Grid.RowDefinitions>
+                <RowDefinition Height="Auto" />
+                <RowDefinition Height="*" />
+                <RowDefinition Height="Auto" />
+                <RowDefinition Height="Auto" />
+            </Grid.RowDefinitions>
+
+            <!-- Header (live) -->
+            <Border Grid.Row="0" BorderBrush="{StaticResource Brush.Stroke.Soft}" BorderThickness="0,0,1,1" Padding="10,6"
+                    Visibility="{Binding Session.IsReviewing, Converter={StaticResource InverseBoolToVisibility}}">
+                <Grid>
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="Auto" />
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="Auto" />
+                    </Grid.ColumnDefinitions>
+                    <TextBlock Grid.Column="0" Text="TRANSCRIPT" Style="{StaticResource PanelLabelStyle}" VerticalAlignment="Center" />
+                    <!-- Inline session title: only visible while a session is active -->
+                    <Grid Grid.Column="1" Margin="10,0,6,0"
+                          Visibility="{Binding Session.IsRecording, Converter={StaticResource BoolToVisibility}}">
+                        <TextBox Style="{StaticResource TextInputStyle}"
+                                 Text="{Binding Session.SessionTitle, UpdateSourceTrigger=PropertyChanged}"
+                                 FontSize="10.5" Padding="7,3" MinHeight="0"
+                                 MaxLength="80" />
+                        <TextBlock Text="Session title…" FontSize="10.5" Foreground="{StaticResource Brush.Text.Hint}"
+                                   Margin="9,0,0,0" VerticalAlignment="Center" IsHitTestVisible="False">
+                            <TextBlock.Style>
+                                <Style TargetType="TextBlock">
+                                    <Setter Property="Visibility" Value="Collapsed" />
+                                    <Style.Triggers>
+                                        <DataTrigger Binding="{Binding Session.SessionTitle}" Value="">
+                                            <Setter Property="Visibility" Value="Visible" />
+                                        </DataTrigger>
+                                    </Style.Triggers>
+                                </Style>
+                            </TextBlock.Style>
+                        </TextBlock>
+                    </Grid>
+                    <Button Grid.Column="2" Content="transcripts ↗" Click="OpenTranscriptsFolder_Click" Cursor="Hand"
+                            Background="Transparent" BorderThickness="0" Foreground="{StaticResource Brush.Text.Faint}"
+                            FontSize="10" Padding="4,0" />
+                </Grid>
+            </Border>
+
+            <!-- Header (review): in-transcript search (4l) -->
+            <Border Grid.Row="0" BorderBrush="{StaticResource Brush.Stroke.Soft}" BorderThickness="0,0,1,1" Padding="12,7"
+                    Visibility="{Binding Session.IsReviewing, Converter={StaticResource BoolToVisibility}}">
+                <Grid>
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="Auto" />
+                        <ColumnDefinition Width="Auto" />
+                        <ColumnDefinition Width="Auto" />
+                    </Grid.ColumnDefinitions>
+                    <Grid Grid.Column="0">
+                        <TextBox Style="{StaticResource TextInputStyle}" MinHeight="28" FontSize="11"
+                                 Text="{Binding Session.ReviewSearchText, UpdateSourceTrigger=PropertyChanged}" />
+                        <TextBlock Text="⌕ Search this session…" FontSize="11" Foreground="{StaticResource Brush.Text.Hint}"
+                                   Margin="11,0,0,0" VerticalAlignment="Center" IsHitTestVisible="False">
+                            <TextBlock.Style>
+                                <Style TargetType="TextBlock">
+                                    <Setter Property="Visibility" Value="Collapsed" />
+                                    <Style.Triggers>
+                                        <DataTrigger Binding="{Binding Session.ReviewSearchText}" Value="">
+                                            <Setter Property="Visibility" Value="Visible" />
+                                        </DataTrigger>
+                                    </Style.Triggers>
+                                </Style>
+                            </TextBlock.Style>
+                        </TextBlock>
+                    </Grid>
+                    <TextBlock Grid.Column="1" Text="{Binding Session.MatchCountText}" FontFamily="{StaticResource Font.Mono}"
+                               FontSize="10" Foreground="{StaticResource Brush.Text.Muted}" Margin="8,0,4,0" VerticalAlignment="Center" />
+                    <Button Grid.Column="2" Content="▲" FontSize="8" Padding="6,4" Style="{StaticResource SubtleButtonStyle}"
+                            Command="{Binding Session.PrevMatchCommand}" ToolTip="Previous match" />
+                    <Button Grid.Column="3" Content="▼" FontSize="8" Padding="6,4" Style="{StaticResource SubtleButtonStyle}"
+                            Command="{Binding Session.NextMatchCommand}" Margin="3,0,0,0" ToolTip="Next match" />
+                </Grid>
+            </Border>
+
+            <!-- Live transcript list with follow chip overlay -->
+            <Grid Grid.Row="1">
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="*" />
+                </Grid.RowDefinitions>
+
+                <!-- Inline banners (4d) -->
+                <ItemsControl Grid.Row="0" ItemsSource="{Binding Session.Banners}" Margin="10,8,10,0">
+                    <ItemsControl.ItemTemplate>
+                        <DataTemplate>
+                            <Border x:Name="BannerBd" CornerRadius="8" BorderThickness="1" Padding="12,8" Margin="0,0,0,7"
+                                    Background="{StaticResource Brush.Rec.Bg}" BorderBrush="{StaticResource Brush.Rec.Border}">
+                                <Grid>
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="*" />
+                                        <ColumnDefinition Width="Auto" />
+                                        <ColumnDefinition Width="Auto" />
+                                    </Grid.ColumnDefinitions>
+                                    <TextBlock x:Name="BannerText" Grid.Column="0" Text="{Binding Text}" FontSize="11.5" TextWrapping="Wrap"
+                                               Foreground="#FFF0B0B0" VerticalAlignment="Center" />
+                                    <Button Grid.Column="1" Content="{Binding ActionLabel}" Command="{Binding ActionCommand}"
+                                            Style="{StaticResource SubtleButtonStyle}" Padding="9,3" FontSize="10.5" Margin="9,0,0,0">
+                                        <Button.Visibility>
+                                            <Binding Path="ActionCommand">
+                                                <Binding.Converter>
+                                                    <conv:NullToCollapsedConverter />
+                                                </Binding.Converter>
+                                            </Binding>
+                                        </Button.Visibility>
+                                    </Button>
+                                    <Button Grid.Column="2" Content="✕" Command="{Binding DismissCommand}" Cursor="Hand"
+                                            Background="Transparent" BorderThickness="0" FontSize="10.5"
+                                            Foreground="{StaticResource Brush.Text.Muted}" Margin="6,0,0,0" Padding="4,0" />
+                                </Grid>
+                            </Border>
+                            <DataTemplate.Triggers>
+                                <DataTrigger Binding="{Binding Severity}" Value="Warning">
+                                    <Setter TargetName="BannerBd" Property="Background" Value="{StaticResource Brush.Privacy.Cloud.Bg}" />
+                                    <Setter TargetName="BannerBd" Property="BorderBrush" Value="{StaticResource Brush.Privacy.Cloud.Border}" />
+                                    <Setter TargetName="BannerText" Property="Foreground" Value="{StaticResource Brush.Privacy.Cloud.Text}" />
+                                </DataTrigger>
+                                <DataTrigger Binding="{Binding Severity}" Value="Info">
+                                    <Setter TargetName="BannerBd" Property="Background" Value="{StaticResource Brush.Bg.Chrome}" />
+                                    <Setter TargetName="BannerBd" Property="BorderBrush" Value="{StaticResource Brush.Surface.Hi}" />
+                                    <Setter TargetName="BannerText" Property="Foreground" Value="{StaticResource Brush.Text.Muted}" />
+                                </DataTrigger>
+                            </DataTemplate.Triggers>
+                        </DataTemplate>
+                    </ItemsControl.ItemTemplate>
+                </ItemsControl>
+
+                <Grid Grid.Row="1">
+                <Border BorderBrush="{StaticResource Brush.Stroke}" BorderThickness="0,0,1,0">
+                    <ListBox x:Name="TranscriptList"
+                             ItemsSource="{Binding Session.Transcript}"
+                             Background="Transparent" BorderThickness="0"
+                             Padding="8,10"
+                             ScrollViewer.HorizontalScrollBarVisibility="Disabled"
+                             ScrollViewer.CanContentScroll="True"
+                             VirtualizingStackPanel.IsVirtualizing="True"
+                             VirtualizingStackPanel.VirtualizationMode="Recycling"
+                             VirtualizingPanel.ScrollUnit="Pixel"
+                             behaviors:AutoScrollBehavior.IsEnabled="True"
+                             ItemTemplate="{StaticResource TranscriptRowTemplate}">
+                        <ListBox.ItemContainerStyle>
+                            <Style TargetType="ListBoxItem">
+                                <Setter Property="Focusable" Value="False" />
+                                <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+                                <Setter Property="Padding" Value="0" />
+                                <Setter Property="Template">
+                                    <Setter.Value>
+                                        <ControlTemplate TargetType="ListBoxItem">
+                                            <ContentPresenter />
+                                        </ControlTemplate>
+                                    </Setter.Value>
+                                </Setter>
+                            </Style>
+                        </ListBox.ItemContainerStyle>
+                    </ListBox>
+                </Border>
+
+                <!-- Follow-live chip -->
+                <Button HorizontalAlignment="Center" VerticalAlignment="Bottom" Margin="0,0,0,10"
+                        Click="FollowLive_Click" Cursor="Hand"
+                        Background="Transparent" BorderThickness="0" Padding="0"
+                        Visibility="{Binding Session.IsRecording, Converter={StaticResource BoolToVisibility}}">
+                    <Border CornerRadius="99" Background="#F0292C31" BorderBrush="{StaticResource Brush.Stroke.Hi}"
+                            BorderThickness="1" Padding="11,3">
+                        <StackPanel Orientation="Horizontal">
+                            <Ellipse Width="5" Height="5" VerticalAlignment="Center">
+                                <Ellipse.Style>
+                                    <Style TargetType="Ellipse">
+                                        <Setter Property="Fill" Value="{StaticResource Brush.Privacy.Local}" />
+                                        <Style.Triggers>
+                                            <DataTrigger Binding="{Binding Path=(behaviors:AutoScrollBehavior.IsFollowing), ElementName=TranscriptList}" Value="False">
+                                                <Setter Property="Fill" Value="{StaticResource Brush.Text.Faint}" />
+                                            </DataTrigger>
+                                        </Style.Triggers>
+                                    </Style>
+                                </Ellipse.Style>
+                            </Ellipse>
+                            <TextBlock FontSize="10" Foreground="{StaticResource Brush.Nav.Inactive}" Margin="7,0,0,0">
+                                <TextBlock.Style>
+                                    <Style TargetType="TextBlock">
+                                        <Setter Property="Text" Value="Following live — scroll up to pause" />
+                                        <Style.Triggers>
+                                            <DataTrigger Binding="{Binding Path=(behaviors:AutoScrollBehavior.IsFollowing), ElementName=TranscriptList}" Value="False">
+                                                <Setter Property="Text" Value="Paused — click to follow live" />
+                                            </DataTrigger>
+                                        </Style.Triggers>
+                                    </Style>
+                                </TextBlock.Style>
+                            </TextBlock>
+                        </StackPanel>
+                    </Border>
+                </Button>
+
+                <!-- First-run / idle state (4g) -->
+                <Border Background="{StaticResource Brush.Bg.Window}" BorderBrush="{StaticResource Brush.Stroke}" BorderThickness="0,0,1,0"
+                        Visibility="{Binding Session.ShowIdlePanel, Converter={StaticResource BoolToVisibility}}">
+                    <StackPanel VerticalAlignment="Center" HorizontalAlignment="Center" MaxWidth="250">
+                        <Border Width="64" Height="64" CornerRadius="32" Background="{StaticResource Brush.Rec.Bg}"
+                                BorderBrush="{StaticResource Brush.Rec.Border}" BorderThickness="1" HorizontalAlignment="Center">
+                            <Ellipse Width="22" Height="22" Fill="{StaticResource Brush.Rec}" />
+                        </Border>
+                        <TextBlock Text="Ready to record" FontSize="15" FontWeight="SemiBold" Foreground="{StaticResource Brush.Text.Title}"
+                                   HorizontalAlignment="Center" Margin="0,14,0,0" />
+                        <TextBlock Text="Mic + system audio, transcribed on this PC. Nothing is uploaded."
+                                   FontSize="11.5" Foreground="{StaticResource Brush.Text.Muted}" TextWrapping="Wrap"
+                                   TextAlignment="Center" Margin="0,4,0,0" />
+                        <Button Content="● Start recording" Style="{StaticResource RecordButtonStyle}" HorizontalAlignment="Center"
+                                Margin="0,14,0,0" Command="{Binding Session.StartCommand}" />
+                        <StackPanel Margin="0,14,0,0" HorizontalAlignment="Center">
+                            <StackPanel.Resources>
+                                <Style x:Key="CheckMark" TargetType="TextBlock">
+                                    <Setter Property="FontSize" Value="10.5" />
+                                    <Setter Property="Margin" Value="0,0,7,0" />
+                                </Style>
+                                <Style x:Key="CheckText" TargetType="TextBlock">
+                                    <Setter Property="FontSize" Value="10.5" />
+                                    <Setter Property="Foreground" Value="{StaticResource Brush.Text.Hint}" />
+                                </Style>
+                            </StackPanel.Resources>
+                            <StackPanel Orientation="Horizontal" Margin="0,0,0,5">
+                                <TextBlock Style="{StaticResource CheckMark}"
+                                           Text="{Binding Session.WhisperCheckOk, Converter={StaticResource CheckMarkConverter}}"
+                                           Foreground="{Binding Session.WhisperCheckOk, Converter={StaticResource CheckBrushConverter}}" />
+                                <TextBlock Style="{StaticResource CheckText}" Text="{Binding Session.WhisperCheckText}" TextWrapping="Wrap" MaxWidth="210" />
+                            </StackPanel>
+                            <StackPanel Orientation="Horizontal" Margin="0,0,0,5">
+                                <TextBlock Style="{StaticResource CheckMark}"
+                                           Text="{Binding Session.SpeakerCheckOk, Converter={StaticResource CheckMarkConverter}}"
+                                           Foreground="{Binding Session.SpeakerCheckOk, Converter={StaticResource CheckBrushConverter}}" />
+                                <TextBlock Style="{StaticResource CheckText}" Text="{Binding Session.SpeakerCheckText}" TextWrapping="Wrap" MaxWidth="210" />
+                            </StackPanel>
+                            <StackPanel Orientation="Horizontal">
+                                <TextBlock Style="{StaticResource CheckMark}"
+                                           Text="{Binding Session.DeviceCheckOk, Converter={StaticResource CheckMarkConverter}}"
+                                           Foreground="{Binding Session.DeviceCheckOk, Converter={StaticResource CheckBrushConverter}}" />
+                                <TextBlock Style="{StaticResource CheckText}" Text="{Binding Session.DeviceCheckText}" TextWrapping="Wrap" MaxWidth="210" />
+                            </StackPanel>
+                        </StackPanel>
+                    </StackPanel>
+                </Border>
+                </Grid>
+            </Grid>
+
+            <!-- Error line (kept for hard start failures) -->
+            <TextBlock Grid.Row="2" Text="{Binding Session.ErrorText}" Foreground="{StaticResource Brush.Danger.Text}"
+                       FontSize="11" TextWrapping="Wrap" Margin="14,4" />
+
+            <!-- Footer: session controls (live) / read-only info (review) -->
+            <Border Grid.Row="3" Background="{StaticResource Brush.Bg.Footer}"
+                    BorderBrush="{StaticResource Brush.Stroke.Soft}" BorderThickness="0,1,1,0" Padding="14,9">
+                <Grid>
+                    <Grid Visibility="{Binding Session.IsReviewing, Converter={StaticResource InverseBoolToVisibility}}">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="Auto" />
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="Auto" />
+                        </Grid.ColumnDefinitions>
+                        <StackPanel Grid.Column="0" Orientation="Horizontal">
+                            <Button Content="● Start" Style="{StaticResource PrimaryButtonStyle}" Padding="14,6"
+                                    Background="{StaticResource Brush.Rec.Gradient}" Margin="0,0,8,0"
+                                    Command="{Binding Session.StartCommand}" />
+                            <Button Content="❚❚ Pause" Style="{StaticResource NeutralButtonStyle}" Margin="0,0,8,0" Command="{Binding Session.PauseCommand}" />
+                            <Button Content="▶" Style="{StaticResource NeutralButtonStyle}" Margin="0,0,8,0" Command="{Binding Session.ResumeCommand}"
+                                    ToolTip="Resume" />
+                            <Button Content="■ Stop" Style="{StaticResource DangerButtonStyle}" Command="{Binding Session.StopCommand}" />
+                        </StackPanel>
+                        <TextBlock Grid.Column="2" Text="{Binding Session.SourcesSummary}" Style="{StaticResource MonoTextStyle}"
+                                   FontSize="9.5" VerticalAlignment="Center" />
+                    </Grid>
+                    <Grid Visibility="{Binding Session.IsReviewing, Converter={StaticResource BoolToVisibility}}">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="Auto" />
+                        </Grid.ColumnDefinitions>
+                        <TextBlock Grid.Column="0" Text="{Binding Session.ReviewFooterText}" Style="{StaticResource MonoTextStyle}"
+                                   FontSize="9.5" VerticalAlignment="Center" />
+                        <Button Grid.Column="1" Content="Export ▾" Style="{StaticResource SubtleButtonStyle}" Padding="10,3" FontSize="10.5"
+                                Click="ExportReviewSession_Click" ToolTip="Export as minutes markdown" />
+                    </Grid>
+                </Grid>
+            </Border>
+        </Grid>
+
+        <!-- ═══ Assistant chat column (4a) ═══ -->
+        <Grid x:Name="ChatColumn" Grid.Column="1" Background="{StaticResource Brush.Bg.Panel}">
+            <Grid.RowDefinitions>
+                <RowDefinition Height="Auto" />
+                <RowDefinition Height="*" />
+                <RowDefinition Height="Auto" />
+                <RowDefinition Height="Auto" />
+            </Grid.RowDefinitions>
+
+            <!-- Header: label, mode badge, status pill, session controls -->
+            <Border Grid.Row="0" BorderBrush="{StaticResource Brush.Stroke.Soft}" BorderThickness="0,0,0,1" Padding="14,8">
+                <Grid>
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="Auto" />
+                        <ColumnDefinition Width="Auto" />
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="Auto" />
+                        <ColumnDefinition Width="Auto" />
+                        <ColumnDefinition Width="Auto" />
+                    </Grid.ColumnDefinitions>
+                    <TextBlock Grid.Column="0" Text="ASSISTANT" Style="{StaticResource PanelLabelStyle}" />
+                    <StackPanel Grid.Column="1" Orientation="Horizontal">
+                    <Border CornerRadius="4" Padding="6,1" Margin="8,0,0,0" VerticalAlignment="Center"
+                            Background="{StaticResource Brush.Accent.Bg}"
+                            Visibility="{Binding Session.IsReviewing, Converter={StaticResource BoolToVisibility}}">
+                        <TextBlock Text="grounded on this archive" FontSize="9.5" FontWeight="SemiBold"
+                                   Foreground="{StaticResource Brush.Accent.Text}" />
+                    </Border>
+                    <Border CornerRadius="4" Padding="6,1" Margin="8,0,0,0" VerticalAlignment="Center">
+                        <Border.Style>
+                            <Style TargetType="Border">
+                                <Setter Property="Background" Value="{StaticResource Brush.Privacy.Local.Bg}" />
+                                <Style.Triggers>
+                                    <DataTrigger Binding="{Binding AgentPanel.ModeSendsAudio}" Value="True">
+                                        <Setter Property="Background" Value="{StaticResource Brush.Privacy.Cloud.Bg}" />
+                                    </DataTrigger>
+                                </Style.Triggers>
+                            </Style>
+                        </Border.Style>
+                        <TextBlock Text="{Binding AgentPanel.ModeBadgeText}" FontSize="9.5" FontWeight="SemiBold">
+                            <TextBlock.Style>
+                                <Style TargetType="TextBlock">
+                                    <Setter Property="Foreground" Value="{StaticResource Brush.Privacy.Local.Text}" />
+                                    <Style.Triggers>
+                                        <DataTrigger Binding="{Binding AgentPanel.ModeSendsAudio}" Value="True">
+                                            <Setter Property="Foreground" Value="{StaticResource Brush.Privacy.Cloud.Text}" />
+                                        </DataTrigger>
+                                    </Style.Triggers>
+                                </Style>
+                            </TextBlock.Style>
+                        </TextBlock>
+                    </Border>
+                    </StackPanel>
+
+                    <!-- Status pill -->
+                    <Border Grid.Column="3" CornerRadius="99" BorderThickness="1" Padding="9,3" VerticalAlignment="Center">
+                        <Border.Style>
+                            <Style TargetType="Border">
+                                <Setter Property="Background" Value="{StaticResource Brush.Bg.Chrome}" />
+                                <Setter Property="BorderBrush" Value="{StaticResource Brush.Surface.Hi}" />
+                                <Style.Triggers>
+                                    <DataTrigger Binding="{Binding AgentPanel.PillState}" Value="Listening">
+                                        <Setter Property="Background" Value="{StaticResource Brush.Accent.Bg}" />
+                                        <Setter Property="BorderBrush" Value="{StaticResource Brush.Accent.Border}" />
+                                    </DataTrigger>
+                                    <DataTrigger Binding="{Binding AgentPanel.PillState}" Value="Thinking">
+                                        <Setter Property="Background" Value="{StaticResource Brush.Accent.Bg}" />
+                                        <Setter Property="BorderBrush" Value="{StaticResource Brush.Accent.Border}" />
+                                    </DataTrigger>
+                                    <DataTrigger Binding="{Binding AgentPanel.PillState}" Value="Speaking">
+                                        <Setter Property="Background" Value="{StaticResource Brush.Privacy.Local.Bg}" />
+                                        <Setter Property="BorderBrush" Value="{StaticResource Brush.Privacy.Local.Border}" />
+                                    </DataTrigger>
+                                    <DataTrigger Binding="{Binding AgentPanel.PillState}" Value="Error">
+                                        <Setter Property="Background" Value="{StaticResource Brush.Rec.Bg}" />
+                                        <Setter Property="BorderBrush" Value="{StaticResource Brush.Rec.Border}" />
+                                    </DataTrigger>
+                                </Style.Triggers>
+                            </Style>
+                        </Border.Style>
+                        <StackPanel Orientation="Horizontal">
+                            <!-- Equalizer bars (Listening only) -->
+                            <StackPanel Orientation="Horizontal" VerticalAlignment="Center" Margin="0,0,6,0"
+                                        Visibility="{Binding AgentPanel.PillState, Converter={StaticResource EnumMatchVisibility}, ConverterParameter=Listening}">
+                                <Rectangle Width="2.5" Height="9" RadiusX="1" RadiusY="1" Fill="{StaticResource Brush.Accent.Soft}" RenderTransformOrigin="0.5,1">
+                                    <Rectangle.RenderTransform><ScaleTransform /></Rectangle.RenderTransform>
+                                    <Rectangle.Triggers>
+                                        <EventTrigger RoutedEvent="Loaded">
+                                            <BeginStoryboard>
+                                                <Storyboard>
+                                                    <DoubleAnimation Storyboard.TargetProperty="RenderTransform.ScaleY" From="0.3" To="1" Duration="0:0:0.5" AutoReverse="True" RepeatBehavior="Forever" />
+                                                </Storyboard>
+                                            </BeginStoryboard>
+                                        </EventTrigger>
+                                    </Rectangle.Triggers>
+                                </Rectangle>
+                                <Rectangle Width="2.5" Height="9" RadiusX="1" RadiusY="1" Fill="{StaticResource Brush.Accent.Soft}" Margin="2,0,0,0" RenderTransformOrigin="0.5,1">
+                                    <Rectangle.RenderTransform><ScaleTransform /></Rectangle.RenderTransform>
+                                    <Rectangle.Triggers>
+                                        <EventTrigger RoutedEvent="Loaded">
+                                            <BeginStoryboard>
+                                                <Storyboard>
+                                                    <DoubleAnimation Storyboard.TargetProperty="RenderTransform.ScaleY" From="0.3" To="1" Duration="0:0:0.5" BeginTime="0:0:0.2" AutoReverse="True" RepeatBehavior="Forever" />
+                                                </Storyboard>
+                                            </BeginStoryboard>
+                                        </EventTrigger>
+                                    </Rectangle.Triggers>
+                                </Rectangle>
+                                <Rectangle Width="2.5" Height="9" RadiusX="1" RadiusY="1" Fill="{StaticResource Brush.Accent.Soft}" Margin="2,0,0,0" RenderTransformOrigin="0.5,1">
+                                    <Rectangle.RenderTransform><ScaleTransform /></Rectangle.RenderTransform>
+                                    <Rectangle.Triggers>
+                                        <EventTrigger RoutedEvent="Loaded">
+                                            <BeginStoryboard>
+                                                <Storyboard>
+                                                    <DoubleAnimation Storyboard.TargetProperty="RenderTransform.ScaleY" From="0.3" To="1" Duration="0:0:0.5" BeginTime="0:0:0.4" AutoReverse="True" RepeatBehavior="Forever" />
+                                                </Storyboard>
+                                            </BeginStoryboard>
+                                        </EventTrigger>
+                                    </Rectangle.Triggers>
+                                </Rectangle>
+                            </StackPanel>
+                            <!-- Status dot (all states except Listening) -->
+                            <Ellipse Width="7" Height="7" VerticalAlignment="Center" Margin="0,0,6,0">
+                                <Ellipse.Style>
+                                    <Style TargetType="Ellipse">
+                                        <Setter Property="Fill" Value="{StaticResource Brush.Text.Faint}" />
+                                        <Style.Triggers>
+                                            <DataTrigger Binding="{Binding AgentPanel.PillState}" Value="Listening">
+                                                <Setter Property="Visibility" Value="Collapsed" />
+                                            </DataTrigger>
+                                            <DataTrigger Binding="{Binding AgentPanel.PillState}" Value="Connecting">
+                                                <Setter Property="Fill" Value="{StaticResource Brush.Accent.Soft}" />
+                                            </DataTrigger>
+                                            <DataTrigger Binding="{Binding AgentPanel.PillState}" Value="Thinking">
+                                                <Setter Property="Fill" Value="{StaticResource Brush.Accent.Soft}" />
+                                            </DataTrigger>
+                                            <DataTrigger Binding="{Binding AgentPanel.PillState}" Value="Speaking">
+                                                <Setter Property="Fill" Value="{StaticResource Brush.Privacy.Local}" />
+                                            </DataTrigger>
+                                            <DataTrigger Binding="{Binding AgentPanel.PillState}" Value="Error">
+                                                <Setter Property="Fill" Value="{StaticResource Brush.Rec}" />
+                                            </DataTrigger>
+                                            <DataTrigger Binding="{Binding AgentPanel.IsPillActive}" Value="True">
+                                                <DataTrigger.EnterActions>
+                                                    <BeginStoryboard x:Name="PillPulse">
+                                                        <Storyboard>
+                                                            <DoubleAnimation Storyboard.TargetProperty="Opacity" From="1" To="0.35" Duration="0:0:0.5" AutoReverse="True" RepeatBehavior="Forever" />
+                                                        </Storyboard>
+                                                    </BeginStoryboard>
+                                                </DataTrigger.EnterActions>
+                                                <DataTrigger.ExitActions>
+                                                    <StopStoryboard BeginStoryboardName="PillPulse" />
+                                                </DataTrigger.ExitActions>
+                                            </DataTrigger>
+                                        </Style.Triggers>
+                                    </Style>
+                                </Ellipse.Style>
+                            </Ellipse>
+                            <TextBlock Text="{Binding AgentPanel.PillText}" FontSize="10.5" FontWeight="SemiBold">
+                                <TextBlock.Style>
+                                    <Style TargetType="TextBlock">
+                                        <Setter Property="Foreground" Value="{StaticResource Brush.Text.Muted}" />
+                                        <Style.Triggers>
+                                            <DataTrigger Binding="{Binding AgentPanel.PillState}" Value="Listening">
+                                                <Setter Property="Foreground" Value="{StaticResource Brush.Accent.Text}" />
+                                            </DataTrigger>
+                                            <DataTrigger Binding="{Binding AgentPanel.PillState}" Value="Thinking">
+                                                <Setter Property="Foreground" Value="{StaticResource Brush.Accent.Text}" />
+                                            </DataTrigger>
+                                            <DataTrigger Binding="{Binding AgentPanel.PillState}" Value="Speaking">
+                                                <Setter Property="Foreground" Value="{StaticResource Brush.Privacy.Local.Text}" />
+                                            </DataTrigger>
+                                            <DataTrigger Binding="{Binding AgentPanel.PillState}" Value="Error">
+                                                <Setter Property="Foreground" Value="{StaticResource Brush.Rec.Text}" />
+                                            </DataTrigger>
+                                        </Style.Triggers>
+                                    </Style>
+                                </TextBlock.Style>
+                            </TextBlock>
+                        </StackPanel>
+                    </Border>
+
+                    <Button Grid.Column="4" Content="Start" Style="{StaticResource SubtleButtonStyle}" Padding="9,3" Margin="8,0,0,0"
+                            FontSize="10.5" Command="{Binding AgentPanel.StartVoiceCommand}" ToolTip="Connect the assistant" />
+                    <StackPanel Grid.Column="5" Orientation="Horizontal">
+                        <Button Content="Stop" Style="{StaticResource SubtleButtonStyle}" Padding="9,3" Margin="4,0,0,0"
+                                FontSize="10.5" Command="{Binding AgentPanel.StopVoiceCommand}" ToolTip="Disconnect the assistant" />
+                        <Button x:Name="CompactNotesButton" Content="✎ Notes" Style="{StaticResource SubtleButtonStyle}" Padding="9,3"
+                                Margin="4,0,0,0" FontSize="10.5" Visibility="Collapsed" Click="CompactShowNotes_Click" />
+                    </StackPanel>
+                </Grid>
+            </Border>
+
+            <!-- Conversation -->
+            <Grid Grid.Row="1">
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="*" />
+                </Grid.RowDefinitions>
+
+                <!-- API key banner (only when the assistant is on but no key resolves) -->
+                <Border Grid.Row="0" CornerRadius="8" BorderThickness="1" Padding="12,8" Margin="14,10,14,0"
+                        Background="{StaticResource Brush.Privacy.Cloud.Bg}" BorderBrush="{StaticResource Brush.Privacy.Cloud.Border}">
+                    <Border.Style>
+                        <Style TargetType="Border">
+                            <Setter Property="Visibility" Value="Collapsed" />
+                            <Style.Triggers>
+                                <MultiDataTrigger>
+                                    <MultiDataTrigger.Conditions>
+                                        <Condition Binding="{Binding AgentPanel.HasApiKey}" Value="False" />
+                                        <Condition Binding="{Binding AgentPanel.AgentEnabled}" Value="True" />
+                                    </MultiDataTrigger.Conditions>
+                                    <Setter Property="Visibility" Value="Visible" />
+                                </MultiDataTrigger>
+                            </Style.Triggers>
+                        </Style>
+                    </Border.Style>
+                    <Grid>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="Auto" />
+                        </Grid.ColumnDefinitions>
+                        <TextBlock Grid.Column="0" Text="{Binding AgentPanel.ApiKeyNotice}" FontSize="11.5" TextWrapping="Wrap"
+                                   Foreground="{StaticResource Brush.Privacy.Cloud.Text}" VerticalAlignment="Center" />
+                        <Button Grid.Column="1" Content="Open settings" Style="{StaticResource SubtleButtonStyle}" Padding="9,3"
+                                FontSize="10.5" Margin="9,0,0,0" Click="OpenAssistantSettings_Click" />
+                    </Grid>
+                </Border>
+
+                <Grid Grid.Row="1">
+                    <ScrollViewer VerticalScrollBarVisibility="Auto"
+                                  behaviors:AutoScrollBehavior.IsEnabled="True">
+                        <ItemsControl ItemsSource="{Binding AgentPanel.Messages}" VerticalAlignment="Bottom" Margin="16,12">
+                    <ItemsControl.ItemTemplate>
+                        <DataTemplate>
+                            <Grid Margin="0,0,0,11">
+                                <!-- User bubble -->
+                                <Border x:Name="UserBubble" HorizontalAlignment="Right" MaxWidth="440"
+                                        Background="{StaticResource Brush.Surface.Hi}" CornerRadius="12,12,3,12"
+                                        Padding="12,8" Visibility="Collapsed">
+                                    <TextBlock Text="{Binding Text}" FontSize="12.5" TextWrapping="Wrap"
+                                               Foreground="{StaticResource Brush.Text.Primary}" LineHeight="18" />
+                                </Border>
+                                <!-- Assistant reply -->
+                                <StackPanel x:Name="AssistantBlock" HorizontalAlignment="Left" MaxWidth="500" Visibility="Collapsed">
+                                    <Border BorderBrush="{StaticResource Brush.Accent}" BorderThickness="2,0,0,0" Padding="11,2,0,2">
+                                        <StackPanel>
+                                            <!-- Timestamps become clickable citations once the reply finishes streaming (4l) -->
+                                            <TextBlock FontSize="12.5" TextWrapping="Wrap"
+                                                       Foreground="{StaticResource Brush.Text.Body}" LineHeight="19"
+                                                       behaviors:TimestampInlineBehavior.FormattedText="{Binding Text}"
+                                                       behaviors:TimestampInlineBehavior.Linkify="{Binding IsStreaming, Converter={StaticResource InverseBool}}"
+                                                       behaviors:TimestampInlineBehavior.CitationCommand="{Binding DataContext.Session.CitationCommand, RelativeSource={RelativeSource AncestorType=UserControl}}" />
+                                            <TextBlock Text="{Binding MetaText}" FontSize="10" Foreground="{StaticResource Brush.Text.Faint}"
+                                                       Margin="0,3,0,0">
+                                                <TextBlock.Style>
+                                                    <Style TargetType="TextBlock">
+                                                        <Style.Triggers>
+                                                            <DataTrigger Binding="{Binding MetaText}" Value="">
+                                                                <Setter Property="Visibility" Value="Collapsed" />
+                                                            </DataTrigger>
+                                                        </Style.Triggers>
+                                                    </Style>
+                                                </TextBlock.Style>
+                                            </TextBlock>
+                                        </StackPanel>
+                                    </Border>
+                                    <StackPanel Orientation="Horizontal" Margin="13,5,0,0">
+                                        <Button Content="Copy" Command="{Binding CopyCommand}" Cursor="Hand"
+                                                FontSize="9.5" FontWeight="SemiBold" Padding="8,2"
+                                                Foreground="{StaticResource Brush.Text.Muted}" Background="Transparent">
+                                            <Button.Template>
+                                                <ControlTemplate TargetType="Button">
+                                                    <Border CornerRadius="99" BorderBrush="{StaticResource Brush.Surface.Hi}" BorderThickness="1"
+                                                            Padding="{TemplateBinding Padding}" Background="{TemplateBinding Background}">
+                                                        <ContentPresenter />
+                                                    </Border>
+                                                </ControlTemplate>
+                                            </Button.Template>
+                                        </Button>
+                                    </StackPanel>
+                                </StackPanel>
+                            </Grid>
+                            <DataTemplate.Triggers>
+                                <DataTrigger Binding="{Binding IsUser}" Value="True">
+                                    <Setter TargetName="UserBubble" Property="Visibility" Value="Visible" />
+                                </DataTrigger>
+                                <DataTrigger Binding="{Binding IsUser}" Value="False">
+                                    <Setter TargetName="AssistantBlock" Property="Visibility" Value="Visible" />
+                                </DataTrigger>
+                            </DataTemplate.Triggers>
+                        </DataTemplate>
+                    </ItemsControl.ItemTemplate>
+                        </ItemsControl>
+                    </ScrollViewer>
+
+                    <!-- Assistant off — empty state (4g) -->
+                    <Border Background="{StaticResource Brush.Bg.Panel}"
+                            Visibility="{Binding AgentPanel.AgentEnabled, Converter={StaticResource InverseBoolToVisibility}}">
+                        <StackPanel VerticalAlignment="Center" HorizontalAlignment="Center" MaxWidth="300">
+                            <TextBlock Text="Private AI copilot — off" FontSize="13.5" FontWeight="SemiBold"
+                                       Foreground="{StaticResource Brush.Text.Body}" HorizontalAlignment="Center" />
+                            <TextBlock FontSize="11.5" Foreground="{StaticResource Brush.Text.Muted}" TextWrapping="Wrap"
+                                       TextAlignment="Center" Margin="0,4,0,0">
+                                Ask about the meeting as it happens; replies play only in your headphones. Uses OpenAI — in Hybrid mode only your words as <Run FontWeight="SemiBold" Foreground="{StaticResource Brush.Text.Body}">text</Run> leave this PC.
+                            </TextBlock>
+                            <Button Content="Enable assistant" HorizontalAlignment="Center" Margin="0,12,0,0" Cursor="Hand"
+                                    FontSize="12" FontWeight="SemiBold" Foreground="{StaticResource Brush.Accent.Text}"
+                                    Background="Transparent" Command="{Binding AgentPanel.EnableAssistantCommand}">
+                                <Button.Template>
+                                    <ControlTemplate TargetType="Button">
+                                        <Border x:Name="Bd" CornerRadius="8" BorderBrush="{StaticResource Brush.Accent}" BorderThickness="1"
+                                                Padding="20,8" Background="{TemplateBinding Background}">
+                                            <ContentPresenter />
+                                        </Border>
+                                        <ControlTemplate.Triggers>
+                                            <Trigger Property="IsMouseOver" Value="True">
+                                                <Setter TargetName="Bd" Property="Background" Value="{StaticResource Brush.Accent.Bg}" />
+                                            </Trigger>
+                                        </ControlTemplate.Triggers>
+                                    </ControlTemplate>
+                                </Button.Template>
+                            </Button>
+                            <TextBlock Text="requires OPENAI_API_KEY · context packs: context\" FontSize="10"
+                                       Foreground="{StaticResource Brush.Text.Faint}" HorizontalAlignment="Center" Margin="0,10,0,0" />
+                        </StackPanel>
+                    </Border>
+                </Grid>
+            </Grid>
+
+            <!-- Input row -->
+            <Border Grid.Row="2" BorderBrush="{StaticResource Brush.Stroke.Soft}" BorderThickness="0,1,0,0" Padding="14,10,14,6">
+                <Grid>
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="Auto" />
+                    </Grid.ColumnDefinitions>
+                    <Grid Grid.Column="0">
+                        <TextBox x:Name="ChatInputBox" Style="{StaticResource TextInputStyle}" MinHeight="38"
+                                 Text="{Binding AgentPanel.ChatInput, UpdateSourceTrigger=PropertyChanged}"
+                                 KeyDown="ChatInput_KeyDown" />
+                        <TextBlock FontSize="12" Foreground="{StaticResource Brush.Text.Hint}"
+                                   Margin="13,0,0,0" VerticalAlignment="Center" IsHitTestVisible="False">
+                            <TextBlock.Style>
+                                <Style TargetType="TextBlock">
+                                    <Setter Property="Visibility" Value="Collapsed" />
+                                    <Setter Property="Text" Value="Type, or hold Space to talk…" />
+                                    <Style.Triggers>
+                                        <DataTrigger Binding="{Binding AgentPanel.ChatInput}" Value="">
+                                            <Setter Property="Visibility" Value="Visible" />
+                                        </DataTrigger>
+                                        <DataTrigger Binding="{Binding Session.IsReviewing}" Value="True">
+                                            <Setter Property="Text" Value="Ask about this meeting…" />
+                                        </DataTrigger>
+                                    </Style.Triggers>
+                                </Style>
+                            </TextBlock.Style>
+                        </TextBlock>
+                    </Grid>
+                    <Button Grid.Column="1" Width="104" Height="38" Margin="8,0,0,0" Cursor="Hand"
+                            PreviewMouseLeftButtonDown="HoldToTalk_Down" PreviewMouseLeftButtonUp="HoldToTalk_Up">
+                        <Button.Style>
+                            <Style TargetType="Button">
+                                <Setter Property="Background" Value="{StaticResource Brush.Accent.Gradient}" />
+                                <Setter Property="Foreground" Value="White" />
+                                <Setter Property="FontSize" Value="12" />
+                                <Setter Property="FontWeight" Value="SemiBold" />
+                                <Setter Property="Content" Value="🎙 Hold" />
+                                <Setter Property="Template">
+                                    <Setter.Value>
+                                        <ControlTemplate TargetType="Button">
+                                            <Border x:Name="Bd" Background="{TemplateBinding Background}" CornerRadius="9">
+                                                <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center" />
+                                            </Border>
+                                        </ControlTemplate>
+                                    </Setter.Value>
+                                </Setter>
+                                <Style.Triggers>
+                                    <DataTrigger Binding="{Binding AgentPanel.HoldPhase}" Value="Held">
+                                        <Setter Property="Content" Value="● Listening…" />
+                                        <Setter Property="Background" Value="{StaticResource Brush.Accent.Deep}" />
+                                    </DataTrigger>
+                                    <MultiDataTrigger>
+                                        <MultiDataTrigger.Conditions>
+                                            <Condition Binding="{Binding AgentPanel.HoldPhase}" Value="Held" />
+                                            <Condition Binding="{Binding AgentPanel.ModeSendsAudio}" Value="True" />
+                                        </MultiDataTrigger.Conditions>
+                                        <!-- Amber while mic audio streams (pushToTalk) -->
+                                        <Setter Property="Background" Value="{StaticResource Brush.Privacy.Cloud}" />
+                                        <Setter Property="Foreground" Value="#FF1E2024" />
+                                    </MultiDataTrigger>
+                                    <DataTrigger Binding="{Binding AgentPanel.HoldPhase}" Value="Transcribing">
+                                        <Setter Property="Content" Value="Transcribing…" />
+                                        <Setter Property="Background" Value="{StaticResource Brush.Bg.Chrome}" />
+                                        <Setter Property="Foreground" Value="{StaticResource Brush.Accent.Text}" />
+                                    </DataTrigger>
+                                </Style.Triggers>
+                            </Style>
+                        </Button.Style>
+                    </Button>
+                </Grid>
+            </Border>
+
+            <!-- Footer: voice options + devices -->
+            <Grid Grid.Row="3" Margin="16,2,16,9">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="Auto" />
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="Auto" />
+                </Grid.ColumnDefinitions>
+                <StackPanel Grid.Column="0" Orientation="Horizontal">
+                    <TextBlock Text="mode" FontSize="10" Foreground="{StaticResource Brush.Text.Hint}" VerticalAlignment="Center" />
+                    <ComboBox Width="96" Margin="5,0,10,0" FontSize="10.5"
+                              Style="{StaticResource ComboBoxStyle}"
+                              ItemsSource="{Binding AgentPanel.VoiceModes}" SelectedItem="{Binding AgentPanel.SelectedVoiceMode}" />
+                    <TextBlock Text="voice" FontSize="10" Foreground="{StaticResource Brush.Text.Hint}" VerticalAlignment="Center" />
+                    <ComboBox Width="76" Margin="5,0,10,0" FontSize="10.5"
+                              Style="{StaticResource ComboBoxStyle}"
+                              ItemsSource="{Binding AgentPanel.Voices}" SelectedItem="{Binding AgentPanel.VoiceName}" />
+                    <CheckBox Content="speak replies" Style="{StaticResource ToggleSwitchStyle}" FontSize="10.5"
+                              IsChecked="{Binding AgentPanel.SpeakReplies}" VerticalAlignment="Center"
+                              ToolTip="Off = captions only (no playback). Safest when a Bluetooth headset is the mic." />
+                </StackPanel>
+                <StackPanel Grid.Column="2" Orientation="Horizontal">
+                    <TextBlock Text="{Binding AgentPanel.StatusText}" FontSize="10" Foreground="{StaticResource Brush.Text.Hint}"
+                               VerticalAlignment="Center" Margin="0,0,10,0" TextTrimming="CharacterEllipsis" MaxWidth="260" />
+                    <ToggleButton x:Name="DevicesToggle" Content="devices ▾" FontSize="10" Cursor="Hand"
+                                  Foreground="{StaticResource Brush.Text.Hint}" Background="Transparent" BorderThickness="0" />
+                    <Popup IsOpen="{Binding IsChecked, ElementName=DevicesToggle}" StaysOpen="False"
+                           PlacementTarget="{Binding ElementName=DevicesToggle}" Placement="Top">
+                        <Border Background="{StaticResource Brush.Bg.Chrome}" BorderBrush="{StaticResource Brush.Stroke.Hi}"
+                                BorderThickness="1" CornerRadius="10" Padding="14">
+                            <StackPanel Width="280">
+                                <TextBlock Text="VOICE DEVICES" Style="{StaticResource PanelLabelStyle}" Margin="0,0,0,8" />
+                                <TextBlock Text="Microphone" FontSize="10.5" Foreground="{StaticResource Brush.Text.Body}" Margin="0,0,0,3" />
+                                <ComboBox Style="{StaticResource ComboBoxStyle}"
+                                          ItemsSource="{Binding AgentPanel.InputDevices}" DisplayMemberPath="Name" SelectedValuePath="Id"
+                                          SelectedValue="{Binding AgentPanel.SelectedInputDeviceId}" Margin="0,0,0,8" />
+                                <TextBlock Text="Reply playback" FontSize="10.5" Foreground="{StaticResource Brush.Text.Body}" Margin="0,0,0,3" />
+                                <ComboBox Style="{StaticResource ComboBoxStyle}"
+                                          ItemsSource="{Binding AgentPanel.OutputDevices}" DisplayMemberPath="Name" SelectedValuePath="Id"
+                                          SelectedValue="{Binding AgentPanel.SelectedOutputDeviceId}" Margin="0,0,0,8" />
+                                <Button Content="⟳ Refresh devices" Style="{StaticResource SubtleButtonStyle}" HorizontalAlignment="Left"
+                                        Command="{Binding AgentPanel.RefreshInputDevicesCommand}" />
+                                <TextBlock Text="Bluetooth tip: to stop a headset losing its mic — use a USB/built-in mic, route playback to speakers, or turn speak replies off."
+                                           FontSize="9.5" Foreground="{StaticResource Brush.Text.Hint}" TextWrapping="Wrap" Margin="0,8,0,0" />
+                            </StackPanel>
+                        </Border>
+                    </Popup>
+                </StackPanel>
+            </Grid>
+        </Grid>
+
+        <!-- ═══ Notes column (4a) ═══ -->
+        <Grid x:Name="NotesColumn" Grid.Column="2" Background="{StaticResource Brush.Bg.Notes}">
+            <Grid.RowDefinitions>
+                <RowDefinition Height="Auto" />
+                <RowDefinition Height="*" />
+                <RowDefinition Height="Auto" />
+            </Grid.RowDefinitions>
+
+            <Border Grid.Row="0" BorderBrush="{StaticResource Brush.Stroke.Soft}" BorderThickness="1,0,0,1" Padding="13,8">
+                <Grid>
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="Auto" />
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="Auto" />
+                    </Grid.ColumnDefinitions>
+                    <TextBlock Grid.Column="0" Text="✎ NOTES" Style="{StaticResource PanelLabelStyle}"
+                               Foreground="{StaticResource Brush.Privacy.Cloud.Text}" />
+                    <StackPanel Grid.Column="2" Orientation="Horizontal">
+                        <Button x:Name="CompactChatButton" Content="◂ Chat" Style="{StaticResource SubtleButtonStyle}" Padding="9,2"
+                                Margin="0,0,6,0" FontSize="9.5" Visibility="Collapsed" Click="CompactShowChat_Click" />
+                        <Button Content="notes.md ↗" Command="{Binding Notes.OpenNotesFileCommand}" Cursor="Hand"
+                                Background="Transparent" BorderThickness="0" Foreground="{StaticResource Brush.Text.Hint}"
+                                FontSize="9.5" Padding="4,0" />
+                    </StackPanel>
+                </Grid>
+            </Border>
+
+            <Border Grid.Row="1" BorderBrush="{StaticResource Brush.Stroke.Soft}" BorderThickness="1,0,0,0">
+                <Grid>
+                    <!-- Editable markdown text area -->
+                    <TextBox x:Name="NotesTextBox"
+                             Text="{Binding Notes.Content, UpdateSourceTrigger=PropertyChanged}"
+                             LostFocus="NotesTextBox_LostFocus"
+                             TextWrapping="Wrap" AcceptsReturn="True"
+                             VerticalScrollBarVisibility="Auto"
+                             Background="Transparent" BorderThickness="0"
+                             Padding="14,12" FontSize="12"
+                             Foreground="{StaticResource Brush.Text.Body}"
+                             FontFamily="{StaticResource Font.Mono}"
+                             CaretBrush="{StaticResource Brush.Text.Body}"
+                             VerticalContentAlignment="Top" />
+                    <!-- Empty-state hint -->
+                    <TextBlock Text="Ask the assistant to take notes, or type here…"
+                               FontSize="11" Foreground="{StaticResource Brush.Text.Hint}"
+                               Margin="14,12,14,0" VerticalAlignment="Top" IsHitTestVisible="False">
+                        <TextBlock.Style>
+                            <Style TargetType="TextBlock">
+                                <Setter Property="Visibility" Value="Collapsed" />
+                                <Style.Triggers>
+                                    <DataTrigger Binding="{Binding Notes.IsEmpty}" Value="True">
+                                        <Setter Property="Visibility" Value="Visible" />
+                                    </DataTrigger>
+                                </Style.Triggers>
+                            </Style>
+                        </TextBlock.Style>
+                    </TextBlock>
+                </Grid>
+            </Border>
+
+            <Border Grid.Row="2" BorderBrush="{StaticResource Brush.Stroke.Soft}" BorderThickness="1,1,0,0" Padding="13,9">
+                <TextBlock Text="{Binding Notes.AutoSavedText}" Style="{StaticResource MonoTextStyle}" FontSize="9.5" />
+            </Border>
+        </Grid>
+        </Grid>
+    </Grid>
+</UserControl>

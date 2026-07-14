@@ -1,0 +1,147 @@
+{
+    "version": "2.0.0",
+    "tasks": [
+        {
+            "label": "build",
+            "command": "dotnet",
+            "type": "process",
+            "args": [
+                "build",
+                "${workspaceFolder}/LocalTranscriber.sln",
+                "/property:GenerateFullPaths=true",
+                "/consoleloggerparameters:NoSummary"
+            ],
+            "group": {
+                "kind": "build",
+                "isDefault": true
+            },
+            "problemMatcher": "$msCompile"
+        },
+        {
+            "label": "test",
+            "command": "dotnet",
+            "type": "process",
+            "args": [
+                "test",
+                "${workspaceFolder}/LocalTranscriber.sln",
+                "/property:GenerateFullPaths=true",
+                "/consoleloggerparameters:NoSummary"
+            ],
+            "group": {
+                "kind": "test",
+                "isDefault": true
+            },
+            "problemMatcher": "$msCompile"
+        },
+        {
+            "label": "Run App (Claude Logs)",
+            "type": "shell",
+            "command": "powershell",
+            "args": [
+                "-ExecutionPolicy",
+                "Bypass",
+                "-File",
+                "${workspaceFolder}/scripts/run-with-logs.ps1",
+                "-Target",
+                "app"
+            ],
+            "problemMatcher": []
+        },
+        {
+            "label": "Run CLI (Claude Logs)",
+            "type": "shell",
+            "command": "powershell",
+            "args": [
+                "-ExecutionPolicy",
+                "Bypass",
+                "-File",
+                "${workspaceFolder}/scripts/run-with-logs.ps1",
+                "-Target",
+                "cli"
+            ],
+            "problemMatcher": []
+        },
+        {
+            "label": "Run MCP (Claude Logs)",
+            "type": "shell",
+            "command": "powershell",
+            "args": [
+                "-ExecutionPolicy",
+                "Bypass",
+                "-File",
+                "${workspaceFolder}/scripts/run-with-logs.ps1",
+                "-Target",
+                "mcp"
+            ],
+            "problemMatcher": []
+        },
+        {
+            "label": "Tail Logs",
+            "type": "shell",
+            "command": "powershell",
+            "args": [
+                "-ExecutionPolicy",
+                "Bypass",
+                "-File",
+                "${workspaceFolder}/scripts/tail-logs.ps1"
+            ],
+            "problemMatcher": []
+        },
+        {
+            "label": "Stop Log Runners",
+            "type": "shell",
+            "command": "powershell",
+            "args": [
+                "-ExecutionPolicy",
+                "Bypass",
+                "-File",
+                "${workspaceFolder}/scripts/stop-logs.ps1"
+            ],
+            "problemMatcher": []
+        },
+        {
+            "label": "Debug: build + follow logs",
+            "dependsOn": [
+                "build"
+            ],
+            "dependsOrder": "sequence",
+            "type": "shell",
+            "command": "powershell",
+            "args": [
+                "-ExecutionPolicy",
+                "Bypass",
+                "-File",
+                "${workspaceFolder}/scripts/tail-logs.ps1",
+                "-Follow",
+                "-Timeout",
+                "86400",
+                "-Background"
+            ],
+            "isBackground": true,
+            "problemMatcher": {
+                "owner": "tail-logs",
+                "pattern": {
+                    "regexp": "^###TAIL_LOGS_ERROR###:\\s+(.*)$",
+                    "message": 1
+                },
+                "background": {
+                    "activeOnStart": true,
+                    "beginsPattern": ".",
+                    "endsPattern": "Following for"
+                }
+            }
+        },
+        {
+            "label": "Debug: stop log follower",
+            "type": "shell",
+            "command": "powershell",
+            "args": [
+                "-ExecutionPolicy",
+                "Bypass",
+                "-Command",
+                "if (Test-Path tail-logs/tail-follow.pid) { $p = Get-Content tail-logs/tail-follow.pid; taskkill /PID $p /T /F 2>$null | Out-Null; Remove-Item tail-logs/tail-follow.pid -ErrorAction SilentlyContinue }"
+            ],
+            "problemMatcher": []
+        }
+    ]
+}

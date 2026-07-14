@@ -33,7 +33,25 @@ if (Test-Path "models/speaker/segmentation.onnx") {
   "speakerUncertainThreshold": 0.62,
   "chunkSeconds": 10,
   "overlapMs": 500,
-  "flushIntervalMs": 1000
+  "flushIntervalMs": 1000,
+  "filterNonSpeech": true,
+  "agent": {
+    "enabled": false,
+    "provider": "fake",
+    "realtime": {
+      "enabled": false,
+      "model": "gpt-realtime-2.1-mini",
+      "voiceMode": "off",
+      "voice": "marin",
+      "vadThreshold": 0.5,
+      "vadSilenceMs": 500,
+      "vadPrefixPaddingMs": 300,
+      "inputAudioDeviceId": null,
+      "outputAudioDeviceId": null,
+      "groundingIntervalSeconds": 15,
+      "sendAudio": false
+    }
+  }
 }
 "@ | Set-Content "$out/config.example.json"
 

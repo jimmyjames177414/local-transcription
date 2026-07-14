@@ -1,0 +1,66 @@
+{
+    "version": "0.2.0",
+    "inputs": [
+        {
+            "id": "cliArgs",
+            "type": "promptString",
+            "description": "CLI arguments (space-separated), e.g. 'audio devices' or 'transcribe --audio ./output/audio/check.wav'",
+            "default": "--help"
+        }
+    ],
+    "configurations": [
+        {
+            "name": "App (WPF UI)",
+            "type": "coreclr",
+            "request": "launch",
+            "preLaunchTask": "Debug: build + follow logs",
+            "postDebugTask": "Debug: stop log follower",
+            "program": "${workspaceFolder}/src/LocalTranscriber.App/bin/Debug/net8.0-windows/LocalTranscriber.App.dll",
+            "cwd": "${workspaceFolder}",
+            "console": "internalConsole",
+            "stopAtEntry": false
+        },
+        {
+            "name": "CLI (prompt for args)",
+            "type": "coreclr",
+            "request": "launch",
+            "preLaunchTask": "Debug: build + follow logs",
+            "postDebugTask": "Debug: stop log follower",
+            "program": "${workspaceFolder}/src/LocalTranscriber.Cli/bin/Debug/net8.0/LocalTranscriber.Cli.dll",
+            "args": "${input:cliArgs}",
+            "cwd": "${workspaceFolder}",
+            "console": "integratedTerminal",
+            "stopAtEntry": false
+        },
+        {
+            "name": "CLI: audio devices",
+            "type": "coreclr",
+            "request": "launch",
+            "preLaunchTask": "build",
+            "program": "${workspaceFolder}/src/LocalTranscriber.Cli/bin/Debug/net8.0/LocalTranscriber.Cli.dll",
+            "args": [
+                "audio",
+                "devices"
+            ],
+            "cwd": "${workspaceFolder}",
+            "console": "integratedTerminal",
+            "stopAtEntry": false
+        },
+        {
+            "name": "MCP server (stdio)",
+            "type": "coreclr",
+            "request": "launch",
+            "preLaunchTask": "Debug: build + follow logs",
+            "postDebugTask": "Debug: stop log follower",
+            "program": "${workspaceFolder}/src/LocalTranscriber.Mcp/bin/Debug/net8.0/LocalTranscriber.Mcp.dll",
+            "cwd": "${workspaceFolder}",
+            "console": "integratedTerminal",
+            "stopAtEntry": false
+        },
+        {
+            "name": "Attach to process",
+            "type": "coreclr",
+            "request": "attach"
+        }
+    ]
+}

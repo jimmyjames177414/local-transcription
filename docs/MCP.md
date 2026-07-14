@@ -30,6 +30,18 @@ claude mcp add local-transcriber -- C:\path\to\release\LocalTranscriber\LocalTra
 | `rename_speaker` / `forget_speaker` | Speaker management |
 | `set_output_folder` | Change transcript output folder |
 
+## Agent tools
+
+| Tool | Purpose |
+|---|---|
+| `agent_get_status` | Agent config + latest stored activity |
+| `agent_get_suggestions` / `agent_get_latest_suggestion` | Read stored suggestions |
+| `agent_get_summary` / `agent_get_action_items` | Running summary / action items |
+| `agent_dismiss_suggestion` | Dismiss by id |
+| `agent_set_mode` / `agent_get_mode` | Response mode |
+| `agent_ask` | Ask about the current meeting (latest transcript + context, configured provider) |
+| `context_list_documents` / `context_read_document` / `context_validate` | Context pack (context folder only) |
+
 ## Security
 
 - Transport is stdio only; the server never opens a network port.
