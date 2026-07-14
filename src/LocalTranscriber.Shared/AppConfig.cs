@@ -16,4 +16,18 @@ public sealed class AppConfig
     public int FlushIntervalMs { get; set; } = 1000;
     public bool FilterNonSpeech { get; set; } = true;
     public AgentConfig Agent { get; set; } = new();
+    public MinutesExportConfig MinutesExport { get; set; } = new();
+}
+
+/// <summary>
+/// Export finished sessions as markdown for the "minutes" tool (github.com/silverstein/minutes).
+/// Local file output only — nothing is uploaded.
+/// </summary>
+public sealed class MinutesExportConfig
+{
+    /// <summary>Write a minutes-format markdown file when a session stops.</summary>
+    public bool Enabled { get; set; } = true;
+
+    /// <summary>Destination folder; "~" expands to the user profile (minutes watches ~/meetings).</summary>
+    public string Folder { get; set; } = "~/meetings";
 }

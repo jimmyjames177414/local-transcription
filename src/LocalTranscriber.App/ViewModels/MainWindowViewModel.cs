@@ -69,8 +69,10 @@ public sealed class MainWindowViewModel : ObservableObject
 
     // === Speaker rename (click speaker name in transcript) ===
 
+    private readonly List<string> _sessionSpeakerNames = new();
+
     /// <summary>Shell sets this to show a rename input dialog; returns the new name or null on cancel.</summary>
-    public Func<string, string?>? ShowSpeakerRenameDialog { get; set; }
+    public Func<string, IReadOnlyList<string>, string?>? ShowSpeakerRenameDialog { get; set; }
 
     public AsyncRelayCommand<TranscriptRowViewModel> RenameSpeakerCommand { get; }
 
@@ -78,23 +80,45 @@ public sealed class MainWindowViewModel : ObservableObject
     {
         if (!row.CanRename) return;
 
-        string? newName = ShowSpeakerRenameDialog?.Invoke(row.SpeakerName);
+        string? newName = ShowSpeakerRenameDialog?.Invoke(row.SpeakerName, _sessionSpeakerNames);
         if (string.IsNullOrWhiteSpace(newName) || newName.Trim() == row.SpeakerName) return;
 
         string trimmed = newName.Trim();
-        bool ok = await _engine.NameSessionSpeakerAsync(row.SpeakerName, trimmed);
-        if (!ok) return;
 
-        // Update every existing row that shares this speaker so the display flips immediately.
-        string speakerId = row.SpeakerId;
+        if (row.IsUnknownSpeaker)
+        {
+            bool ok = await _engine.NameSessionSpeakerAsync(row.SpeakerName, trimmed);
+            if (!ok) return;
+        }
+        else
+        {
+            await _engine.RenameKnownSpeakerAsync(row.SpeakerName, trimmed);
+        }
+
+        // Determine which rows to rename: unknowns by session ID, knowns by display name.
+        string matchId = row.SpeakerId;
+        string oldName = row.SpeakerName;
+        bool wasUnknown = row.IsUnknownSpeaker;
+        var newBrush = Services.SpeakerPalette.GetBrushForName(trimmed);
+
         foreach (var r in Transcript)
         {
-            if (r.SpeakerId == speakerId)
+            bool isTarget = wasUnknown ? r.SpeakerId == matchId : r.SpeakerName == oldName;
+            if (isTarget)
             {
                 r.SpeakerName = trimmed;
                 r.IsUnknownSpeaker = false;
+                r.SpeakerBrush = newBrush;
+            }
+            else if (r.SpeakerName == trimmed)
+            {
+                // Another speaker already bearing this name — unify their brush too.
+                r.SpeakerBrush = newBrush;
             }
         }
+
+        if (!_sessionSpeakerNames.Contains(trimmed, StringComparer.OrdinalIgnoreCase))
+            _sessionSpeakerNames.Add(trimmed);
     }
 
     // === Session title ===
@@ -555,6 +579,7 @@ public sealed class MainWindowViewModel : ObservableObject
             await _engine.StartAsync(options);
             SessionId = options.SessionId;
             SessionTitle = "";
+            _sessionSpeakerNames.Clear();
             CurrentJsonlPath = options.OutputJsonlPath;
             SetState(TranscriptionSessionState.Recording);
 

@@ -14,7 +14,12 @@ public static class RealtimeVoiceFactory
     public static RealtimeVoiceMode ParseMode(string? value)
         => Enum.TryParse<RealtimeVoiceMode>(value, ignoreCase: true, out var mode) ? mode : RealtimeVoiceMode.Off;
 
-    public static Resolution Create(AppConfig config, SecretsService? secrets = null, string? transcriptJsonlPath = null)
+    public static Resolution Create(
+        AppConfig config,
+        SecretsService? secrets = null,
+        string? transcriptJsonlPath = null,
+        IReadOnlyList<RealtimeToolDefinition>? tools = null,
+        Func<RealtimeToolCall, Task<string>>? toolHandler = null)
     {
         secrets ??= new SecretsService();
         var rt = config.Agent.Realtime;
@@ -63,7 +68,9 @@ public static class RealtimeVoiceFactory
             RollingWindowMinutes = agent.RollingWindowMinutes,
             MaxTranscriptEventsPerPrompt = agent.MaxTranscriptEventsPerPrompt,
             AgentOutputFolder = agent.AgentOutputFolder,
-            WhisperModelPath = config.WhisperModelPath
+            WhisperModelPath = config.WhisperModelPath,
+            Tools = tools ?? Array.Empty<RealtimeToolDefinition>(),
+            ToolHandler = toolHandler
         };
 
         return new Resolution(new RealtimeVoiceSession(options), null);

@@ -84,6 +84,8 @@ public sealed class RealtimeVoiceSession : IRealtimeVoiceConversation
     public event EventHandler<string>? AssistantTextAvailable;
     public event EventHandler<RealtimeVoiceState>? StateChanged;
     public event EventHandler<string>? ErrorOccurred;
+    public event EventHandler<string>? UserTextCommitted;
+    public event EventHandler? ResponseCompleted;
 
     public async Task StartAsync(CancellationToken cancellationToken = default)
     {
@@ -184,17 +186,16 @@ public sealed class RealtimeVoiceSession : IRealtimeVoiceConversation
         _ => null
     };
 
-    private object BuildSessionUpdate(string instructions) => new
+    private object BuildSessionUpdate(string instructions)
     {
-        type = "session.update",
-        session = new
+        var session = new Dictionary<string, object?>
         {
-            type = "realtime",
+            ["type"] = "realtime",
             // GA accepts only ["audio"] or ["text"], not both. Audio replies still carry a
             // transcript via response.output_audio_transcript.* for captions.
-            output_modalities = new[] { "audio" },
-            instructions,
-            audio = new
+            ["output_modalities"] = new[] { "audio" },
+            ["instructions"] = instructions,
+            ["audio"] = new
             {
                 input = new
                 {
@@ -207,8 +208,18 @@ public sealed class RealtimeVoiceSession : IRealtimeVoiceConversation
                     format = new { type = "audio/pcm", rate = 24000 }
                 }
             }
+        };
+
+        if (_options.Tools.Count > 0)
+        {
+            session["tools"] = _options.Tools
+                .Select(t => new { type = "function", name = t.Name, description = t.Description, parameters = t.Parameters })
+                .ToArray();
+            session["tool_choice"] = "auto";
         }
-    };
+
+        return new { type = "session.update", session };
+    }
 
     private static object BuildUserItem(string text) => new
     {
@@ -220,6 +231,27 @@ public sealed class RealtimeVoiceSession : IRealtimeVoiceConversation
             content = new[] { new { type = "input_text", text } }
         }
     };
+
+    /// <summary>Typed user message: same text channel as hybrid voice, no audio involved.</summary>
+    public async Task SendUserTextAsync(string text, CancellationToken cancellationToken = default)
+    {
+        if (_transport is null)
+        {
+            throw new InvalidOperationException("Voice session not started.");
+        }
+
+        text = text.Trim();
+        if (text.Length == 0)
+        {
+            return;
+        }
+
+        var ct = _cts?.Token ?? cancellationToken;
+        _audio.Stop(); // a new user turn interrupts the current reply, same as push-to-talk
+        SetState(RealtimeVoiceState.Thinking);
+        await SendAsync(BuildUserItem(text), ct).ConfigureAwait(false);
+        await SendAsync(new { type = "response.create" }, ct).ConfigureAwait(false);
+    }
 
     // === Mode branch point #2: end of a manual user turn ===
     public void PushToTalkDown() => _ = RunGuardedAsync(OnPushToTalkDownAsync);
@@ -251,6 +283,8 @@ public sealed class RealtimeVoiceSession : IRealtimeVoiceConversation
         if (_options.Mode == RealtimeVoiceMode.PushToTalk)
         {
             await StopMicStreamingAsync().ConfigureAwait(false);
+            // Show a placeholder bubble immediately so the user sees their turn in the chat.
+            UserTextCommitted?.Invoke(this, "🎙");
             // No server VAD: explicitly close the input buffer and ask for a reply.
             await SendAsync(new { type = "input_audio_buffer.commit" }, ct).ConfigureAwait(false);
             await SendAsync(new { type = "response.create" }, ct).ConfigureAwait(false);
@@ -269,6 +303,7 @@ public sealed class RealtimeVoiceSession : IRealtimeVoiceConversation
 
         if (wavPath is null)
         {
+            ErrorOccurred?.Invoke(this, "Microphone captured nothing — check your Voice mic device in the devices panel.");
             SetState(RealtimeVoiceState.Ready);
             return;
         }
@@ -288,6 +323,7 @@ public sealed class RealtimeVoiceSession : IRealtimeVoiceConversation
         catch (Exception ex)
         {
             AppLog.Warn("voice", $"Local STT failed: {ex.Message}");
+            ErrorOccurred?.Invoke(this, $"Speech recognition failed: {ex.Message}");
             SetState(RealtimeVoiceState.Ready);
             return;
         }
@@ -298,11 +334,13 @@ public sealed class RealtimeVoiceSession : IRealtimeVoiceConversation
 
         if (text.Length == 0)
         {
+            ErrorOccurred?.Invoke(this, "No speech detected — hold longer or speak more clearly.");
             SetState(RealtimeVoiceState.Ready);
             return;
         }
 
         // Hybrid sends TEXT only — no audio leaves the machine.
+        UserTextCommitted?.Invoke(this, text);
         await SendAsync(BuildUserItem(text), ct).ConfigureAwait(false);
         await SendAsync(new { type = "response.create" }, ct).ConfigureAwait(false);
     }
@@ -421,12 +459,46 @@ public sealed class RealtimeVoiceSession : IRealtimeVoiceConversation
                 _audio.Flush();
                 _currentItemId = null;
                 SetState(RealtimeVoiceState.Ready);
+                ResponseCompleted?.Invoke(this, EventArgs.Empty);
+                break;
+            case RealtimeVoiceEventKind.FunctionCallDone when evt.CallId is not null:
+                await OnFunctionCallAsync(evt, ct).ConfigureAwait(false);
                 break;
             case RealtimeVoiceEventKind.Error:
                 AppLog.Warn("voice", $"Realtime error: {evt.Text}");
                 ErrorOccurred?.Invoke(this, evt.Text ?? "Realtime error.");
                 break;
         }
+    }
+
+    /// <summary>Runs the app-supplied tool handler and returns the output so the model can confirm.</summary>
+    private async Task OnFunctionCallAsync(RealtimeVoiceServerEvent evt, CancellationToken ct)
+    {
+        string output;
+        if (_options.ToolHandler is null)
+        {
+            output = "{\"ok\":false,\"error\":\"no tool handler\"}";
+        }
+        else
+        {
+            try
+            {
+                output = await _options.ToolHandler(new RealtimeToolCall(evt.ToolName ?? "", evt.CallId!, evt.Text ?? "{}"))
+                    .ConfigureAwait(false);
+            }
+            catch (Exception ex)
+            {
+                AppLog.Warn("voice", $"Tool '{evt.ToolName}' failed: {ex.Message}");
+                output = "{\"ok\":false,\"error\":\"tool failed\"}";
+            }
+        }
+
+        await SendAsync(new
+        {
+            type = "conversation.item.create",
+            item = new { type = "function_call_output", call_id = evt.CallId, output }
+        }, ct).ConfigureAwait(false);
+        await SendAsync(new { type = "response.create" }, ct).ConfigureAwait(false);
     }
 
     // === Mode branch point #3: the user starts talking mid-reply (server VAD / continuous) ===

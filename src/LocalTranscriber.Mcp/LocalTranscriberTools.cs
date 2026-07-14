@@ -122,6 +122,25 @@ public sealed class LocalTranscriberTools
         return sessions.Count == 0 ? "No sessions yet." : JsonSerializer.Serialize(sessions, Pretty);
     }
 
+    [McpServerTool(Name = "export_minutes"), Description(
+        "Export a recorded session as minutes-format markdown (YAML frontmatter + transcript + notes) " +
+        "for the 'minutes' tool. Local file output only. Defaults to the most recent session and the configured minutes folder.")]
+    public async Task<string> ExportMinutes(
+        [Description("Session id or unique prefix; omit for the most recent session.")] string? sessionId = null,
+        [Description("Destination folder; omit for the configured minutes folder (~/meetings).")] string? outputFolder = null)
+    {
+        _logger.Log("export_minutes", sessionId ?? "(latest)");
+        try
+        {
+            string path = await _service.ExportMinutesAsync(sessionId, outputFolder);
+            return $"Exported: {path}";
+        }
+        catch (Exception ex)
+        {
+            return $"Export failed: {ex.Message}";
+        }
+    }
+
     [McpServerTool(Name = "list_known_speakers"), Description("List known speakers stored locally.")]
     public async Task<string> ListKnownSpeakers()
     {

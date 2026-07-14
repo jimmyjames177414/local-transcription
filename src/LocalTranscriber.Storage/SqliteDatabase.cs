@@ -52,6 +52,7 @@ public sealed class SqliteDatabase
             using var cmd = connection.CreateCommand();
             cmd.CommandText = Schema;
             cmd.ExecuteNonQuery();
+            MigrateSessionsTitle(connection);
             _initialized = true;
         }
     }
@@ -84,7 +85,8 @@ public sealed class SqliteDatabase
             ended_at TEXT,
             output_text_path TEXT NOT NULL,
             output_jsonl_path TEXT NOT NULL,
-            status TEXT NOT NULL
+            status TEXT NOT NULL,
+            title TEXT
         );
 
         CREATE TABLE IF NOT EXISTS transcript_events (
@@ -138,4 +140,21 @@ public sealed class SqliteDatabase
             PRIMARY KEY (session_id, session_speaker_id)
         );
         """;
+
+    /// <summary>
+    /// Databases created before the sessions screen lack the title column; CREATE IF NOT EXISTS
+    /// won't add it, so probe and ALTER. Idempotent and fast (runs once per SqliteDatabase).
+    /// </summary>
+    private static void MigrateSessionsTitle(SqliteConnection connection)
+    {
+        using var probe = connection.CreateCommand();
+        probe.CommandText = "SELECT COUNT(*) FROM pragma_table_info('sessions') WHERE name = 'title'";
+        long count = (long)(probe.ExecuteScalar() ?? 0L);
+        if (count == 0)
+        {
+            using var alter = connection.CreateCommand();
+            alter.CommandText = "ALTER TABLE sessions ADD COLUMN title TEXT";
+            alter.ExecuteNonQuery();
+        }
+    }
 }

@@ -6,7 +6,15 @@ public sealed record SessionRecord(
     DateTimeOffset? EndedAt,
     string OutputTextPath,
     string OutputJsonlPath,
-    string Status
+    string Status,
+    string? Title = null
+);
+
+/// <summary>A session plus cheap list metadata (one query for the whole sessions screen).</summary>
+public sealed record SessionSummary(
+    SessionRecord Session,
+    int EventCount,
+    IReadOnlyList<string> SpeakerNames
 );
 
 public sealed record KnownSpeaker(

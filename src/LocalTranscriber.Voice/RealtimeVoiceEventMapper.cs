@@ -10,15 +10,23 @@ public enum RealtimeVoiceEventKind
     AudioTranscriptDone,
     SpeechStarted,
     ResponseDone,
+    FunctionCallDone,
     Error
 }
 
 /// <summary>
 /// A mapped server event. <see cref="Text"/> carries base64 PCM for audio deltas, the caption
-/// text for transcript events, and the message for errors; null otherwise. <see cref="ItemId"/>
-/// is the conversation item id (present on audio deltas) needed for barge-in truncation.
+/// text for transcript events, the arguments JSON for function calls, and the message for
+/// errors; null otherwise. <see cref="ItemId"/> is the conversation item id (present on audio
+/// deltas) needed for barge-in truncation. <see cref="CallId"/>/<see cref="ToolName"/> are set
+/// on function-call events.
 /// </summary>
-public sealed record RealtimeVoiceServerEvent(RealtimeVoiceEventKind Kind, string? Text, string? ItemId = null);
+public sealed record RealtimeVoiceServerEvent(
+    RealtimeVoiceEventKind Kind,
+    string? Text,
+    string? ItemId = null,
+    string? CallId = null,
+    string? ToolName = null);
 
 /// <summary>Maps raw OpenAI Realtime (GA) server events to the kinds the voice session handles.</summary>
 public static class RealtimeVoiceEventMapper
@@ -48,6 +56,12 @@ public static class RealtimeVoiceEventMapper
 
                 case "input_audio_buffer.speech_started":
                     return new RealtimeVoiceServerEvent(RealtimeVoiceEventKind.SpeechStarted, null);
+
+                case "response.function_call_arguments.done":
+                    return new RealtimeVoiceServerEvent(RealtimeVoiceEventKind.FunctionCallDone,
+                        GetString(root, "arguments"),
+                        CallId: GetString(root, "call_id"),
+                        ToolName: GetString(root, "name"));
 
                 case "response.done":
                 case "response.completed":

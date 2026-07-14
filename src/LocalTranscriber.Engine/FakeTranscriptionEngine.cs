@@ -280,6 +280,9 @@ public sealed class FakeTranscriptionEngine : ITranscriptionEngine, IAsyncDispos
     public Task<bool> NameSessionSpeakerAsync(string sessionLabel, string newName, CancellationToken cancellationToken = default)
         => Task.FromResult(false);
 
+    public Task<bool> RenameKnownSpeakerAsync(string oldName, string newName, CancellationToken cancellationToken = default)
+        => Task.FromResult(false);
+
     public Task UpdateSessionTitleAsync(string sessionId, string? title, CancellationToken cancellationToken = default)
         => Task.CompletedTask;
 

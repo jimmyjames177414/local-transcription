@@ -1,9 +1,15 @@
-﻿<Application x:Class="LocalTranscriber.App.App"
+<Application x:Class="LocalTranscriber.App.App"
              xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:local="clr-namespace:LocalTranscriber.App"
              StartupUri="MainWindow.xaml">
     <Application.Resources>
-         
+        <ResourceDictionary>
+            <ResourceDictionary.MergedDictionaries>
+                <!-- Swap Tokens.Dark for Tokens.Light to change theme (same keys). -->
+                <ResourceDictionary Source="Themes/Tokens.Dark.xaml" />
+                <ResourceDictionary Source="Themes/Controls.xaml" />
+            </ResourceDictionary.MergedDictionaries>
+        </ResourceDictionary>
     </Application.Resources>
 </Application>

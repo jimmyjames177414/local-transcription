@@ -14,8 +14,8 @@ public sealed class SqliteSessionStore : ISessionStore
         using var connection = _db.OpenConnection();
         using var cmd = connection.CreateCommand();
         cmd.CommandText = """
-            INSERT INTO sessions (id, started_at, ended_at, output_text_path, output_jsonl_path, status)
-            VALUES ($id, $started, $ended, $txt, $jsonl, $status)
+            INSERT INTO sessions (id, started_at, ended_at, output_text_path, output_jsonl_path, status, title)
+            VALUES ($id, $started, $ended, $txt, $jsonl, $status, $title)
             """;
         cmd.Parameters.AddWithValue("$id", session.Id);
         cmd.Parameters.AddWithValue("$started", session.StartedAt.ToString("o"));
@@ -23,6 +23,7 @@ public sealed class SqliteSessionStore : ISessionStore
         cmd.Parameters.AddWithValue("$txt", session.OutputTextPath);
         cmd.Parameters.AddWithValue("$jsonl", session.OutputJsonlPath);
         cmd.Parameters.AddWithValue("$status", session.Status);
+        cmd.Parameters.AddWithValue("$title", (object?)session.Title ?? DBNull.Value);
         await cmd.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
     }
 
@@ -41,7 +42,7 @@ public sealed class SqliteSessionStore : ISessionStore
     {
         using var connection = _db.OpenConnection();
         using var cmd = connection.CreateCommand();
-        cmd.CommandText = "SELECT id, started_at, ended_at, output_text_path, output_jsonl_path, status FROM sessions WHERE id = $id";
+        cmd.CommandText = "SELECT id, started_at, ended_at, output_text_path, output_jsonl_path, status, title FROM sessions WHERE id = $id";
         cmd.Parameters.AddWithValue("$id", sessionId);
         using var reader = await cmd.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
         return await reader.ReadAsync(cancellationToken).ConfigureAwait(false) ? ReadSession(reader) : null;
@@ -51,7 +52,7 @@ public sealed class SqliteSessionStore : ISessionStore
     {
         using var connection = _db.OpenConnection();
         using var cmd = connection.CreateCommand();
-        cmd.CommandText = "SELECT id, started_at, ended_at, output_text_path, output_jsonl_path, status FROM sessions ORDER BY started_at DESC";
+        cmd.CommandText = "SELECT id, started_at, ended_at, output_text_path, output_jsonl_path, status, title FROM sessions ORDER BY started_at DESC";
         var result = new List<SessionRecord>();
         using var reader = await cmd.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
         while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
@@ -61,13 +62,71 @@ public sealed class SqliteSessionStore : ISessionStore
         return result;
     }
 
+    public async Task UpdateTitleAsync(string sessionId, string? title, CancellationToken cancellationToken = default)
+    {
+        using var connection = _db.OpenConnection();
+        using var cmd = connection.CreateCommand();
+        cmd.CommandText = "UPDATE sessions SET title = $title WHERE id = $id";
+        cmd.Parameters.AddWithValue("$title", (object?)title ?? DBNull.Value);
+        cmd.Parameters.AddWithValue("$id", sessionId);
+        await cmd.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+    }
+
+    public async Task DeleteAsync(string sessionId, CancellationToken cancellationToken = default)
+    {
+        using var connection = _db.OpenConnection();
+        using var cmd = connection.CreateCommand();
+        cmd.CommandText = "DELETE FROM sessions WHERE id = $id";
+        cmd.Parameters.AddWithValue("$id", sessionId);
+        await cmd.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+    }
+
+    public async Task<IReadOnlyList<SessionSummary>> ListSummariesAsync(CancellationToken cancellationToken = default)
+    {
+        var sessions = await ListAsync(cancellationToken).ConfigureAwait(false);
+
+        // Two round-trips total: sessions above, speaker groups below. Not GROUP_CONCAT —
+        // speaker names may contain commas.
+        var speakersBySession = new Dictionary<string, List<string>>();
+        var countsBySession = new Dictionary<string, int>();
+        using (var connection = _db.OpenConnection())
+        using (var cmd = connection.CreateCommand())
+        {
+            cmd.CommandText = """
+                SELECT session_id, speaker_name, COUNT(*)
+                FROM transcript_events
+                GROUP BY session_id, speaker_name
+                ORDER BY session_id, MIN(timestamp)
+                """;
+            using var reader = await cmd.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
+            while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
+            {
+                string sessionId = reader.GetString(0);
+                if (!speakersBySession.TryGetValue(sessionId, out var names))
+                {
+                    speakersBySession[sessionId] = names = new List<string>();
+                }
+                names.Add(reader.GetString(1));
+                countsBySession[sessionId] = countsBySession.GetValueOrDefault(sessionId) + reader.GetInt32(2);
+            }
+        }
+
+        return sessions
+            .Select(s => new SessionSummary(
+                s,
+                countsBySession.GetValueOrDefault(s.Id),
+                speakersBySession.TryGetValue(s.Id, out var names) ? names : Array.Empty<string>()))
+            .ToList();
+    }
+
     private static SessionRecord ReadSession(SqliteDataReader reader) => new(
         reader.GetString(0),
         DateTimeOffset.Parse(reader.GetString(1)),
         reader.IsDBNull(2) ? null : DateTimeOffset.Parse(reader.GetString(2)),
         reader.GetString(3),
         reader.GetString(4),
-        reader.GetString(5));
+        reader.GetString(5),
+        reader.IsDBNull(6) ? null : reader.GetString(6));
 }
 
 public sealed class SqliteTranscriptEventStore : ITranscriptEventStore
@@ -123,6 +182,37 @@ public sealed class SqliteTranscriptEventStore : ITranscriptEventStore
                 Confidence: reader.IsDBNull(7) ? null : reader.GetDouble(7),
                 StartMs: reader.IsDBNull(8) ? null : reader.GetInt64(8),
                 EndMs: reader.IsDBNull(9) ? null : reader.GetInt64(9)));
+        }
+        return result;
+    }
+
+    public async Task DeleteBySessionAsync(string sessionId, CancellationToken cancellationToken = default)
+    {
+        using var connection = _db.OpenConnection();
+        using var cmd = connection.CreateCommand();
+        cmd.CommandText = "DELETE FROM transcript_events WHERE session_id = $session";
+        cmd.Parameters.AddWithValue("$session", sessionId);
+        await cmd.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+    }
+
+    public async Task<IReadOnlyList<string>> SearchSessionIdsAsync(string text, CancellationToken cancellationToken = default)
+    {
+        text = text.Trim();
+        if (text.Length == 0)
+        {
+            return Array.Empty<string>();
+        }
+
+        string escaped = text.Replace("\\", "\\\\").Replace("%", "\\%").Replace("_", "\\_");
+        using var connection = _db.OpenConnection();
+        using var cmd = connection.CreateCommand();
+        cmd.CommandText = @"SELECT DISTINCT session_id FROM transcript_events WHERE text LIKE $q ESCAPE '\'";
+        cmd.Parameters.AddWithValue("$q", $"%{escaped}%");
+        var result = new List<string>();
+        using var reader = await cmd.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
+        while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
+        {
+            result.Add(reader.GetString(0));
         }
         return result;
     }

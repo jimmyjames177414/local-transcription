@@ -214,6 +214,132 @@ public class RealtimeVoiceSessionTests
     }
 
     [Fact]
+    public async Task SendUserText_SendsInputTextItemThenResponseCreate_NoAudio()
+    {
+        var transport = new FakeRealtimeTransport();
+        var options = new RealtimeVoiceOptions { ApiKey = "k", Mode = RealtimeVoiceMode.Hybrid };
+        await using var session = NewSession(options, transport);
+
+        await session.StartAsync();
+        await session.SendUserTextAsync("What did Joe commit to?");
+
+        var sent = transport.SentSnapshot().ToList();
+        int itemIndex = sent.FindIndex(s => s.Contains("conversation.item.create") && s.Contains("What did Joe commit to?"));
+        int responseIndex = sent.FindIndex(s => s.Contains("response.create"));
+        Assert.True(itemIndex >= 0, "typed text was sent as input_text");
+        Assert.True(responseIndex > itemIndex, "response.create followed the typed text");
+        Assert.DoesNotContain(sent, s => s.Contains("input_audio_buffer.append"));
+        Assert.Equal(RealtimeVoiceState.Thinking, session.State);
+    }
+
+    [Fact]
+    public async Task SendUserText_Throws_WhenNotStarted()
+    {
+        var transport = new FakeRealtimeTransport();
+        var options = new RealtimeVoiceOptions { ApiKey = "k", Mode = RealtimeVoiceMode.Hybrid };
+        await using var session = NewSession(options, transport);
+
+        await Assert.ThrowsAsync<InvalidOperationException>(() => session.SendUserTextAsync("hello"));
+    }
+
+    [Fact]
+    public async Task Hybrid_PushToTalkUp_RaisesUserTextCommitted_WithLocalSttText()
+    {
+        var transport = new FakeRealtimeTransport();
+        var options = new RealtimeVoiceOptions { ApiKey = "k", Mode = RealtimeVoiceMode.Hybrid };
+        await using var session = NewSession(options, transport, transcript: "Book the meeting room.", recorderPath: "held.wav");
+
+        string? committed = null;
+        session.UserTextCommitted += (_, text) => committed = text;
+
+        await session.StartAsync();
+        await session.OnPushToTalkDownAsync();
+        await session.OnPushToTalkUpAsync();
+
+        Assert.Equal("Book the meeting room.", committed);
+    }
+
+    [Fact]
+    public async Task ResponseDone_RaisesResponseCompleted()
+    {
+        var transport = new FakeRealtimeTransport();
+        transport.EnqueueServerEvent("{\"type\":\"response.done\"}");
+        var options = new RealtimeVoiceOptions { ApiKey = "k", Mode = RealtimeVoiceMode.Hybrid };
+        await using var session = NewSession(options, transport);
+
+        int completed = 0;
+        session.ResponseCompleted += (_, _) => Interlocked.Increment(ref completed);
+
+        await session.StartAsync();
+        await WaitUntilAsync(() => completed > 0, TimeSpan.FromSeconds(2));
+
+        Assert.Equal(1, completed);
+    }
+
+    [Fact]
+    public async Task Tools_AreIncludedInSessionUpdate()
+    {
+        var transport = new FakeRealtimeTransport();
+        var options = new RealtimeVoiceOptions
+        {
+            ApiKey = "k",
+            Mode = RealtimeVoiceMode.Hybrid,
+            Tools = new[]
+            {
+                new RealtimeToolDefinition("update_notes", "Add a note.",
+                    new { type = "object", properties = new { text = new { type = "string" } } })
+            },
+            ToolHandler = _ => Task.FromResult("{\"ok\":true}")
+        };
+        await using var session = NewSession(options, transport);
+
+        await session.StartAsync();
+
+        string sessionUpdate = Assert.Single(transport.SentSnapshot(), s => s.Contains("session.update"));
+        Assert.Contains("\"tools\":", sessionUpdate);
+        Assert.Contains("\"name\":\"update_notes\"", sessionUpdate);
+        Assert.Contains("\"tool_choice\":\"auto\"", sessionUpdate);
+    }
+
+    [Fact]
+    public async Task FunctionCall_InvokesHandler_SendsOutputThenResponseCreate()
+    {
+        var transport = new FakeRealtimeTransport();
+        transport.EnqueueServerEvent(
+            "{\"type\":\"response.function_call_arguments.done\",\"call_id\":\"call_7\",\"name\":\"update_notes\",\"arguments\":\"{\\\"section\\\":\\\"risks\\\",\\\"text\\\":\\\"Staging down\\\"}\"}");
+
+        RealtimeToolCall? received = null;
+        var options = new RealtimeVoiceOptions
+        {
+            ApiKey = "k",
+            Mode = RealtimeVoiceMode.Hybrid,
+            Tools = new[] { new RealtimeToolDefinition("update_notes", "Add a note.", new { type = "object" }) },
+            ToolHandler = call =>
+            {
+                received = call;
+                return Task.FromResult("{\"ok\":true}");
+            }
+        };
+        await using var session = NewSession(options, transport);
+
+        await session.StartAsync();
+        await WaitUntilAsync(
+            () => transport.SentSnapshot().Any(s => s.Contains("function_call_output")),
+            TimeSpan.FromSeconds(2));
+
+        Assert.NotNull(received);
+        Assert.Equal("update_notes", received!.Name);
+        Assert.Equal("call_7", received.CallId);
+        Assert.Contains("Staging down", received.ArgumentsJson);
+
+        var sent = transport.SentSnapshot().ToList();
+        int outputIndex = sent.FindIndex(s => s.Contains("function_call_output") && s.Contains("call_7"));
+        int responseIndex = sent.FindLastIndex(s => s.Contains("response.create"));
+        Assert.True(outputIndex >= 0, "function_call_output was sent");
+        Assert.True(responseIndex > outputIndex, "response.create followed the tool output");
+    }
+
+    [Fact]
     public void Factory_OffAndConsentGates()
     {
         var noSecrets = new SecretsService(Path.Combine(Path.GetTempPath(), "none-" + Guid.NewGuid().ToString("N") + ".json"));

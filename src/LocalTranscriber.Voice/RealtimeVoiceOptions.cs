@@ -15,6 +15,12 @@ public enum RealtimeVoiceState
     Faulted
 }
 
+/// <summary>A function tool the assistant can call. Parameters is a JSON-schema-shaped object.</summary>
+public sealed record RealtimeToolDefinition(string Name, string Description, object Parameters);
+
+/// <summary>One tool invocation from the server; ArgumentsJson is the raw arguments string.</summary>
+public sealed record RealtimeToolCall(string Name, string CallId, string ArgumentsJson);
+
 /// <summary>
 /// All settings for one real-time voice conversation. Built by <see cref="RealtimeVoiceFactory"/>
 /// from <c>AppConfig</c> + resolved secret. Grounding sources (transcript/context) are optional;
@@ -56,6 +62,15 @@ public sealed record RealtimeVoiceOptions
 
     // Hybrid mode: local whisper STT of the held microphone audio.
     public string WhisperModelPath { get; init; } = "models/whisper/ggml-base.en.bin";
+
+    /// <summary>Function tools offered to the model via session.update (empty = none).</summary>
+    public IReadOnlyList<RealtimeToolDefinition> Tools { get; init; } = Array.Empty<RealtimeToolDefinition>();
+
+    /// <summary>
+    /// Executes a tool call and returns the JSON output sent back as function_call_output.
+    /// Required when <see cref="Tools"/> is non-empty.
+    /// </summary>
+    public Func<RealtimeToolCall, Task<string>>? ToolHandler { get; init; }
 }
 
 /// <summary>
@@ -75,7 +90,23 @@ public interface IRealtimeVoiceConversation : IAsyncDisposable
     /// <summary>Raised with a human-readable message when a turn or the server reports an error.</summary>
     event EventHandler<string>? ErrorOccurred;
 
+    /// <summary>
+    /// Raised when a voice user turn's text is committed — hybrid mode's local STT result.
+    /// Lets the UI show the user's own words in the conversation. Not raised for
+    /// <see cref="SendUserTextAsync"/> (the caller already has that text).
+    /// </summary>
+    event EventHandler<string>? UserTextCommitted;
+
+    /// <summary>Raised when the assistant finishes a reply (server response.done).</summary>
+    event EventHandler? ResponseCompleted;
+
     Task StartAsync(CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Sends a typed user message as text over the same channel hybrid voice uses
+    /// (conversation.item.create + response.create). No audio is involved.
+    /// </summary>
+    Task SendUserTextAsync(string text, CancellationToken cancellationToken = default);
 
     /// <summary>Begin a user turn (key/button down). Hybrid + pushToTalk only.</summary>
     void PushToTalkDown();

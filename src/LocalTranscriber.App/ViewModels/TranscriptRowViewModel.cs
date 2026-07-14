@@ -37,7 +37,19 @@ public sealed class TranscriptRowViewModel : INotifyPropertyChanged
     public string UncertainMark => IsUncertain ? "?" : "";
     public string ConfidenceText { get; }
     public string Text { get; }
-    public Brush SpeakerBrush { get; }
+    private Brush _speakerBrush = null!;
+
+    public Brush SpeakerBrush
+    {
+        get => _speakerBrush;
+        set
+        {
+            if (ReferenceEquals(_speakerBrush, value)) return;
+            _speakerBrush = value;
+            Notify(nameof(SpeakerBrush));
+        }
+    }
+
     public string MicMark => IsMe ? "·🎙" : "";
 
     public string SpeakerName
@@ -59,10 +71,9 @@ public sealed class TranscriptRowViewModel : INotifyPropertyChanged
             if (_isUnknownSpeaker == value) return;
             _isUnknownSpeaker = value;
             Notify(nameof(IsUnknownSpeaker));
-            Notify(nameof(CanRename));
         }
     }
 
-    /// <summary>True for unidentified session speakers — clicking their name opens the rename dialog.</summary>
-    public bool CanRename => !IsMe && _isUnknownSpeaker;
+    /// <summary>True for any non-mic speaker — clicking their name opens the rename dialog.</summary>
+    public bool CanRename => !IsMe;
 }

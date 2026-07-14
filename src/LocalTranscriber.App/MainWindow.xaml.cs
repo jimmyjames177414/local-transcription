@@ -37,9 +37,9 @@ public partial class MainWindow : Window
             Session.SelectedScreenIndex = (int)AppScreen.Settings;
         };
 
-        Session.ShowSpeakerRenameDialog = currentName =>
+        Session.ShowSpeakerRenameDialog = (currentName, suggestions) =>
         {
-            var dlg = new Views.Dialogs.SpeakerRenameDialog(currentName) { Owner = this };
+            var dlg = new Views.Dialogs.SpeakerRenameDialog(currentName, suggestions) { Owner = this };
             return dlg.ShowDialog() == true ? dlg.NewName : null;
         };
 

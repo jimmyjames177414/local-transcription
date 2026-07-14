@@ -29,7 +29,9 @@ public static class EngineFactory
             sessionStore: new SqliteSessionStore(db),
             eventStore: new SqliteTranscriptEventStore(db),
             speakerStore: speakerStore,
-            aliasStore: aliasStore);
+            aliasStore: aliasStore,
+            minutesExport: config.MinutesExport,
+            notesFolder: config.Agent.AgentOutputFolder);
     }
 
     public static TranscriptionSessionOptions CreateSessionOptions(AppConfig config, string? outputFolder = null, bool? mic = null, bool? system = null)

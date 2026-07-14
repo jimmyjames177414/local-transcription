@@ -13,7 +13,15 @@
         </Border.Effect>
         <StackPanel Margin="20,18,20,16">
             <TextBlock x:Name="PromptText" FontSize="13" FontWeight="SemiBold"
-                       Foreground="{StaticResource Brush.Text.Title}" Margin="0,0,0,10" />
+                       Foreground="{StaticResource Brush.Text.Title}" Margin="0,0,0,12" />
+
+            <!-- Quick-pick chips: previously used names (hidden when empty) -->
+            <StackPanel x:Name="SuggestionsPanel" Visibility="Collapsed" Margin="0,0,0,10">
+                <TextBlock Text="Previously named:" FontSize="10.5"
+                           Foreground="{StaticResource Brush.Text.Hint}" Margin="0,0,0,5" />
+                <WrapPanel x:Name="ChipsPanel" />
+            </StackPanel>
+
             <TextBox x:Name="NameBox" Style="{StaticResource TextInputStyle}"
                      FontSize="12" Padding="10,7"
                      KeyDown="NameBox_KeyDown" />

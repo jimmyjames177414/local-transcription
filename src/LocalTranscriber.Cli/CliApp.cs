@@ -23,6 +23,9 @@ public static class CliApp
         root.AddCommand(BuildTailCommand());
         root.AddCommand(BuildReadCommand());
         root.AddCommand(BuildSessionsCommand(configService));
+        root.AddCommand(BuildExportMinutesCommand(configService));
+        root.AddCommand(BuildSyncMinutesCommand(configService));
+        root.AddCommand(BuildDeleteSessionCommand(configService));
         root.AddCommand(SpeakerCommands.Build(configService));
         root.AddCommand(BuildRenameSpeakerCommand(configService));
         root.AddCommand(BuildForgetSpeakerCommand(configService));
@@ -172,6 +175,99 @@ public static class CliApp
         return cmd;
     }
 
+    private static Command BuildExportMinutesCommand(ConfigService configService)
+    {
+        var sessionOpt = new Option<string?>("--session", () => null, "Session id (or unique prefix); default = most recent session.");
+        var outOpt = new Option<string?>("--out", () => null, "Destination folder; default = config minutesExport.folder (~/meetings).");
+        var titleOpt = new Option<string?>("--title", () => null, "Frontmatter title; default = \"Meeting <start time>\".");
+        var cmd = new Command("export-minutes", "Export a session as minutes-format markdown (transcript + notes, local file only).");
+        cmd.AddOption(sessionOpt);
+        cmd.AddOption(outOpt);
+        cmd.AddOption(titleOpt);
+        cmd.SetHandler(async (string? session, string? outFolder, string? title) =>
+        {
+            try
+            {
+                var service = new MinutesExportService(configService.Load());
+                string path = await service.ExportAsync(session, outFolder, title);
+                Console.WriteLine($"Exported: {path}");
+            }
+            catch (Exception ex)
+            {
+                Console.Error.WriteLine(ex.Message);
+                Environment.ExitCode = 1;
+            }
+        }, sessionOpt, outOpt, titleOpt);
+        return cmd;
+    }
+
+    private static Command BuildSyncMinutesCommand(ConfigService configService)
+    {
+        var cmd = new Command("sync-minutes", "Export every finished session that has no minutes file yet.");
+        cmd.SetHandler(async () =>
+        {
+            try
+            {
+                var service = new MinutesExportService(configService.Load());
+                var written = await service.ExportMissingAsync();
+                if (written.Count == 0)
+                {
+                    Console.WriteLine("Everything already synced.");
+                    return;
+                }
+                foreach (string path in written)
+                {
+                    Console.WriteLine($"Exported: {path}");
+                }
+            }
+            catch (Exception ex)
+            {
+                Console.Error.WriteLine(ex.Message);
+                Environment.ExitCode = 1;
+            }
+        });
+        return cmd;
+    }
+
+    private static Command BuildDeleteSessionCommand(ConfigService configService)
+    {
+        var sessionOpt = new Option<string>("--session", "Session id to delete.") { IsRequired = true };
+        var yesOpt = new Option<bool>("--yes", "Confirm the deletion (required; there is no interactive prompt).");
+        var keepMinutesOpt = new Option<bool>("--keep-minutes", "Keep the exported minutes file(s) in the meetings folder.");
+        var cmd = new Command("delete-session", "Delete a session: transcript files, notes, and database rows. Voice memory is kept.");
+        cmd.AddOption(sessionOpt);
+        cmd.AddOption(yesOpt);
+        cmd.AddOption(keepMinutesOpt);
+        cmd.SetHandler(async (string session, bool yes, bool keepMinutes) =>
+        {
+            try
+            {
+                var service = new SessionDeletionService(configService.Load());
+                var files = await service.ListFilesAsync(session);
+                if (!yes)
+                {
+                    Console.WriteLine("This would delete:");
+                    foreach (var f in files)
+                    {
+                        Console.WriteLine($"  {f.Path}");
+                    }
+                    Console.WriteLine("Re-run with --yes to confirm. Voice memory is unaffected.");
+                    Environment.ExitCode = 1;
+                    return;
+                }
+
+                await service.DeleteAsync(session, alsoRemoveMinutes: !keepMinutes);
+                Console.WriteLine($"Deleted session {session} ({files.Count} file{(files.Count == 1 ? "" : "s")} removed).");
+            }
+            catch (Exception ex)
+            {
+                Console.Error.WriteLine(ex.Message);
+                Environment.ExitCode = 1;
+            }
+        }, sessionOpt, yesOpt, keepMinutesOpt);
+        return cmd;
+    }
+
     private static Command BuildSessionsCommand(ConfigService configService)
     {
         var cmd = new Command("sessions", "List recorded sessions.");
@@ -188,7 +284,8 @@ public static class CliApp
             foreach (var s in sessions)
             {
                 string ended = s.EndedAt?.ToLocalTime().ToString("yyyy-MM-dd HH:mm:ss") ?? "-";
-                Console.WriteLine($"{s.Id}  {s.StartedAt.ToLocalTime():yyyy-MM-dd HH:mm:ss}  ended: {ended}  [{s.Status}]  {s.OutputTextPath}");
+                string title = string.IsNullOrWhiteSpace(s.Title) ? "" : $"  \"{s.Title}\"";
+                Console.WriteLine($"{s.Id}  {s.StartedAt.ToLocalTime():yyyy-MM-dd HH:mm:ss}  ended: {ended}  [{s.Status}]{title}  {s.OutputTextPath}");
             }
         });
         return cmd;

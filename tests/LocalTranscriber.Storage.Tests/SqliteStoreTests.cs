@@ -64,6 +64,117 @@ public class SqliteStoreTests : IDisposable
     }
 
     [Fact]
+    public async Task Sessions_TitleRoundTripsAndUpdates()
+    {
+        var store = new SqliteSessionStore(_db);
+        await store.CreateAsync(new SessionRecord("s1", DateTimeOffset.Now, null, "a.txt", "a.jsonl", "recording", "Sprint planning"));
+
+        var loaded = await store.GetAsync("s1");
+        Assert.Equal("Sprint planning", loaded!.Title);
+
+        await store.UpdateTitleAsync("s1", "Sprint planning #42");
+        Assert.Equal("Sprint planning #42", (await store.GetAsync("s1"))!.Title);
+
+        await store.UpdateTitleAsync("s1", null);
+        Assert.Null((await store.GetAsync("s1"))!.Title);
+    }
+
+    [Fact]
+    public async Task Sessions_TitleColumn_MigratesOldDatabase()
+    {
+        // Simulate a pre-title database: create the old sessions schema directly, then open
+        // through SqliteDatabase and confirm the column is added and usable.
+        string path = Path.Combine(_dir, "old.sqlite");
+        using (var raw = new Microsoft.Data.Sqlite.SqliteConnection($"Data Source={path}"))
+        {
+            raw.Open();
+            using var cmd = raw.CreateCommand();
+            cmd.CommandText = """
+                CREATE TABLE sessions (
+                    id TEXT PRIMARY KEY, started_at TEXT NOT NULL, ended_at TEXT,
+                    output_text_path TEXT NOT NULL, output_jsonl_path TEXT NOT NULL, status TEXT NOT NULL);
+                INSERT INTO sessions VALUES ('old1', '2026-07-01T10:00:00+00:00', NULL, 'a.txt', 'a.jsonl', 'stopped');
+                """;
+            cmd.ExecuteNonQuery();
+        }
+
+        var store = new SqliteSessionStore(new SqliteDatabase(path));
+        var loaded = await store.GetAsync("old1");
+        Assert.NotNull(loaded);
+        Assert.Null(loaded!.Title);
+
+        await store.UpdateTitleAsync("old1", "Renamed later");
+        Assert.Equal("Renamed later", (await store.GetAsync("old1"))!.Title);
+    }
+
+    [Fact]
+    public async Task Sessions_DeleteRemovesOnlyTargetRows()
+    {
+        var sessions = new SqliteSessionStore(_db);
+        var events = new SqliteTranscriptEventStore(_db);
+        await sessions.CreateAsync(new SessionRecord("s1", DateTimeOffset.Now, null, "a.txt", "a.jsonl", "stopped"));
+        await sessions.CreateAsync(new SessionRecord("s2", DateTimeOffset.Now, null, "b.txt", "b.jsonl", "stopped"));
+        await events.InsertAsync(new TranscriptEvent("e1", "s1", DateTimeOffset.Now,
+            new SpeakerLabel("x", "Joe", false), AudioSourceType.SystemAudio, "hello"));
+        await events.InsertAsync(new TranscriptEvent("e2", "s2", DateTimeOffset.Now,
+            new SpeakerLabel("x", "Ana", false), AudioSourceType.SystemAudio, "world"));
+
+        await events.DeleteBySessionAsync("s1");
+        await sessions.DeleteAsync("s1");
+
+        Assert.Null(await sessions.GetAsync("s1"));
+        Assert.NotNull(await sessions.GetAsync("s2"));
+        Assert.Empty(await events.ListBySessionAsync("s1"));
+        Assert.Single(await events.ListBySessionAsync("s2"));
+    }
+
+    [Fact]
+    public async Task Events_SearchSessionIds_MatchesAndEscapes()
+    {
+        var sessions = new SqliteSessionStore(_db);
+        await sessions.CreateAsync(new SessionRecord("s1", DateTimeOffset.Now, null, "a.txt", "a.jsonl", "stopped"));
+        await sessions.CreateAsync(new SessionRecord("s2", DateTimeOffset.Now, null, "b.txt", "b.jsonl", "stopped"));
+        var events = new SqliteTranscriptEventStore(_db);
+        await events.InsertAsync(new TranscriptEvent("e1", "s1", DateTimeOffset.Now,
+            new SpeakerLabel("x", "Joe", false), AudioSourceType.SystemAudio, "Deployment moves to Friday"));
+        await events.InsertAsync(new TranscriptEvent("e2", "s2", DateTimeOffset.Now,
+            new SpeakerLabel("x", "Ana", false), AudioSourceType.SystemAudio, "We are 50%_done with QA"));
+
+        Assert.Equal(new[] { "s1" }, await events.SearchSessionIdsAsync("deployment"));
+        Assert.Empty(await events.SearchSessionIdsAsync("kubernetes"));
+        // LIKE metacharacters must be treated literally.
+        Assert.Equal(new[] { "s2" }, await events.SearchSessionIdsAsync("50%_done"));
+        Assert.Empty(await events.SearchSessionIdsAsync("50änderungen"));
+        Assert.Empty(await events.SearchSessionIdsAsync("   "));
+    }
+
+    [Fact]
+    public async Task Sessions_ListSummaries_CountsAndDistinctSpeakers()
+    {
+        var sessions = new SqliteSessionStore(_db);
+        var events = new SqliteTranscriptEventStore(_db);
+        await sessions.CreateAsync(new SessionRecord("s1", DateTimeOffset.Now.AddHours(-1), null, "a.txt", "a.jsonl", "stopped"));
+        await sessions.CreateAsync(new SessionRecord("s2", DateTimeOffset.Now, null, "b.txt", "b.jsonl", "stopped"));
+        foreach (var (id, speaker) in new[] { ("e1", "Me"), ("e2", "Joe"), ("e3", "Joe"), ("e4", "Martina") })
+        {
+            await events.InsertAsync(new TranscriptEvent(id, "s1", DateTimeOffset.Now,
+                new SpeakerLabel("x", speaker, false), AudioSourceType.SystemAudio, "text"));
+        }
+
+        var summaries = await sessions.ListSummariesAsync();
+
+        Assert.Equal(2, summaries.Count);
+        Assert.Equal("s2", summaries[0].Session.Id); // newest first
+        var s1 = summaries.Single(s => s.Session.Id == "s1");
+        Assert.Equal(4, s1.EventCount);
+        Assert.Equal(3, s1.SpeakerNames.Count);
+        Assert.Contains("Joe", s1.SpeakerNames);
+        var s2 = summaries.Single(s => s.Session.Id == "s2");
+        Assert.Equal(0, s2.EventCount);
+        Assert.Empty(s2.SpeakerNames);
+    }
+
+    [Fact]
     public async Task Speakers_CreateRenameForget()
     {
         var store = new SqliteKnownSpeakerStore(_db);

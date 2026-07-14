@@ -55,6 +55,11 @@ public sealed class TranscriberService
         _configService.Save(config);
     }
 
+    /// <summary>Exports a session in minutes format; same composition as the CLI export-minutes command.</summary>
+    public Task<string> ExportMinutesAsync(string? sessionId = null, string? outputFolder = null, CancellationToken cancellationToken = default)
+        => new MinutesExportService(_configService.Load(), SessionStore, new SqliteTranscriptEventStore(_db))
+            .ExportAsync(sessionId, outputFolder, ct: cancellationToken);
+
     public async Task<TranscriptionSessionOptions> StartFakeSessionAsync(CancellationToken cancellationToken = default)
     {
         string folder = TranscriptFolder;

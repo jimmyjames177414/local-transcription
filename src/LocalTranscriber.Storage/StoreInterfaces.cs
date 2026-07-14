@@ -8,12 +8,27 @@ public interface ISessionStore
     Task EndAsync(string sessionId, DateTimeOffset endedAt, string status, CancellationToken cancellationToken = default);
     Task<SessionRecord?> GetAsync(string sessionId, CancellationToken cancellationToken = default);
     Task<IReadOnlyList<SessionRecord>> ListAsync(CancellationToken cancellationToken = default);
+
+    /// <summary>Sets or clears the user-facing session title.</summary>
+    Task UpdateTitleAsync(string sessionId, string? title, CancellationToken cancellationToken = default);
+
+    /// <summary>Deletes the session row only; transcript events go through ITranscriptEventStore.</summary>
+    Task DeleteAsync(string sessionId, CancellationToken cancellationToken = default);
+
+    /// <summary>All sessions newest-first with per-session event counts and distinct speaker names.</summary>
+    Task<IReadOnlyList<SessionSummary>> ListSummariesAsync(CancellationToken cancellationToken = default);
 }
 
 public interface ITranscriptEventStore
 {
     Task InsertAsync(TranscriptEvent transcriptEvent, CancellationToken cancellationToken = default);
     Task<IReadOnlyList<TranscriptEvent>> ListBySessionAsync(string sessionId, CancellationToken cancellationToken = default);
+
+    /// <summary>Deletes all events belonging to a session.</summary>
+    Task DeleteBySessionAsync(string sessionId, CancellationToken cancellationToken = default);
+
+    /// <summary>Ids of sessions whose transcript text contains the query (case-insensitive LIKE).</summary>
+    Task<IReadOnlyList<string>> SearchSessionIdsAsync(string text, CancellationToken cancellationToken = default);
 }
 
 public interface IKnownSpeakerStore
