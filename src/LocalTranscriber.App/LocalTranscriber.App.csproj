@@ -6,6 +6,11 @@
     <ProjectReference Include="..\LocalTranscriber.Voice\LocalTranscriber.Voice.csproj" />
   </ItemGroup>
 
+  <ItemGroup>
+    <PackageReference Include="MdXaml" Version="1.27.0" />
+    <PackageReference Include="MdXaml.Plugins" Version="1.27.0" />
+  </ItemGroup>
+
   <PropertyGroup>
     <OutputType>WinExe</OutputType>
     <TargetFramework>net8.0-windows</TargetFramework>

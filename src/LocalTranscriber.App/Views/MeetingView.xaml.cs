@@ -118,6 +118,7 @@ public partial class MeetingView : UserControl
             TranscriptCol.Width = new GridLength(1, GridUnitType.Star);
             ChatCol.Width = new GridLength(246);
             ChatCol.MinWidth = 0;
+            SplitterCol.Width = new GridLength(0);
             NotesCol.Width = new GridLength(0);
             Grid.SetColumn(NotesColumn, 1);
             CompactNotesButton.Visibility = Visibility.Visible;
@@ -129,8 +130,9 @@ public partial class MeetingView : UserControl
             TranscriptCol.Width = new GridLength(368);
             ChatCol.Width = new GridLength(1, GridUnitType.Star);
             ChatCol.MinWidth = 300;
+            SplitterCol.Width = new GridLength(5);
             NotesCol.Width = new GridLength(248);
-            Grid.SetColumn(NotesColumn, 2);
+            Grid.SetColumn(NotesColumn, 3);
             CompactNotesButton.Visibility = Visibility.Collapsed;
             CompactChatButton.Visibility = Visibility.Collapsed;
             ChatColumn.Visibility = Visibility.Visible;
@@ -195,8 +197,23 @@ public partial class MeetingView : UserControl
         }
     }
 
+    private void NotesEditToggle_Click(object sender, RoutedEventArgs e)
+    {
+        if (Shell?.Notes is not { } notes) return;
+        notes.IsEditing = !notes.IsEditing;
+        if (notes.IsEditing)
+        {
+            NotesTextBox.Focus();
+            NotesTextBox.CaretIndex = NotesTextBox.Text.Length;
+        }
+        else
+        {
+            _ = notes.FlushAsync();
+        }
+    }
+
     private void NotesTextBox_LostFocus(object sender, RoutedEventArgs e)
-        => _ = (Shell?.Notes.FlushAsync());
+        => _ = Shell?.Notes.FlushAsync();
 
     private void HoldToTalk_Down(object sender, System.Windows.Input.MouseButtonEventArgs e)
         => Shell?.AgentPanel.VoicePushToTalkDown();

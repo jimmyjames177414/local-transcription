@@ -14,6 +14,7 @@ public sealed class NotesPanelViewModel : ObservableObject
     private string _autoSavedText = "";
     private bool _suppressSave;
     private bool _isDirty;
+    private bool _isEditing;
 
     public NotesPanelViewModel(NotesService notes)
     {
@@ -39,6 +40,13 @@ public sealed class NotesPanelViewModel : ObservableObject
 
     public bool IsEmpty => string.IsNullOrWhiteSpace(_content);
 
+    /// <summary>True while the raw-markdown TextBox is shown; false shows the rendered preview.</summary>
+    public bool IsEditing
+    {
+        get => _isEditing;
+        set => SetProperty(ref _isEditing, value);
+    }
+
     public string AutoSavedText
     {
         get => _autoSavedText;
@@ -54,6 +62,7 @@ public sealed class NotesPanelViewModel : ObservableObject
         Content = _notes.Content;
         _suppressSave = false;
         _isDirty = false;
+        IsEditing = false;
     }
 
     /// <summary>Persists any unsaved user edits. Called when the text area loses focus.</summary>
