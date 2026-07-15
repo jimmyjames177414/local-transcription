@@ -5,6 +5,7 @@
     <!-- Settings per design 4f: left section nav, grouped fields, save feedback. -->
     <UserControl.Resources>
         <BooleanToVisibilityConverter x:Key="BoolToVisibility" />
+        <conv:InverseBooleanToVisibilityConverter x:Key="InverseBoolToVisibility" />
         <conv:ScreenVisibilityConverter x:Key="SectionVisibility" />
         <Style x:Key="FieldLabel" TargetType="TextBlock">
             <Setter Property="FontSize" Value="11.5" />
@@ -206,6 +207,20 @@
 
                         <!-- Claude CLI workspace picker (claude-cli + hybrid backends) -->
                         <StackPanel Visibility="{Binding AgentPanel.UsesClaudeBrain, Converter={StaticResource BoolToVisibility}}">
+                            <CheckBox Content="Run in WSL" Style="{StaticResource ToggleSwitchStyle}" Margin="0,0,0,4"
+                                      IsChecked="{Binding AgentPanel.UseWsl}" />
+                            <TextBlock Text="Launch the Claude CLI inside a WSL distro instead of native Windows. Use this when your repos live in WSL — the workspace below is then a Linux path."
+                                       FontSize="10" Foreground="{StaticResource Brush.Text.Hint}" Margin="0,0,0,10" TextWrapping="Wrap" />
+
+                            <!-- WSL distro (only when Run in WSL is on) -->
+                            <StackPanel Visibility="{Binding AgentPanel.UseWsl, Converter={StaticResource BoolToVisibility}}">
+                                <TextBlock Text="WSL distro" Style="{StaticResource FieldLabel}" />
+                                <TextBox Style="{StaticResource PathInputStyle}" Margin="0,0,0,4"
+                                         Text="{Binding AgentPanel.WslDistro, UpdateSourceTrigger=LostFocus}" />
+                                <TextBlock Text="e.g. Ubuntu-22.04. Leave blank to use the default distro (wsl -l)."
+                                           FontSize="10" Foreground="{StaticResource Brush.Text.Hint}" Margin="0,0,0,10" TextWrapping="Wrap" />
+                            </StackPanel>
+
                             <TextBlock Text="Workspace folder" Style="{StaticResource FieldLabel}" />
                             <Grid Margin="0,0,0,4">
                                 <Grid.ColumnDefinitions>
@@ -214,10 +229,12 @@
                                 </Grid.ColumnDefinitions>
                                 <TextBox Grid.Column="0" Style="{StaticResource PathInputStyle}"
                                          Text="{Binding AgentPanel.WorkspaceFolder, UpdateSourceTrigger=PropertyChanged}" />
+                                <!-- The Windows folder picker can't choose Linux paths, so hide it in WSL mode. -->
                                 <Button Grid.Column="1" Content="Browse…" Style="{StaticResource SubtleButtonStyle}" Margin="8,0,0,0"
-                                        Click="BrowseWorkspaceFolder_Click" />
+                                        Click="BrowseWorkspaceFolder_Click"
+                                        Visibility="{Binding AgentPanel.UseWsl, Converter={StaticResource InverseBoolToVisibility}}" />
                             </Grid>
-                            <TextBlock Text="The CLI runs here and reads that project's CLAUDE.md, files, memory, and MCP tools. Full-agent mode asks for consent on first connect, then can edit files and run commands here."
+                            <TextBlock Text="The CLI runs here and reads that project's CLAUDE.md, files, memory, and MCP tools. In WSL mode type a Linux path (e.g. /home/you/repos) and trust it once in WSL. Full-agent mode asks for consent on first connect, then can edit files and run commands here."
                                        FontSize="10" Foreground="{StaticResource Brush.Text.Hint}" Margin="0,0,0,12" TextWrapping="Wrap" />
                         </StackPanel>
 

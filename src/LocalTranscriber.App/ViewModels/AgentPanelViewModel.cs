@@ -44,6 +44,8 @@ public sealed class AgentPanelViewModel : ObservableObject
     private bool _agentEnabled;
     private string _selectedProvider;
     private string _workspaceFolder;
+    private bool _useWsl;
+    private string _wslDistro;
     private string _selectedVoiceMode;
     private string _voiceName;
     private string? _selectedInputDeviceId;
@@ -65,6 +67,8 @@ public sealed class AgentPanelViewModel : ObservableObject
         _agentEnabled = config.Agent.Enabled;
         _selectedProvider = config.Agent.Provider;
         _workspaceFolder = config.Agent.ClaudeCli.WorkspaceFolder;
+        _useWsl = config.Agent.ClaudeCli.UseWsl;
+        _wslDistro = config.Agent.ClaudeCli.WslDistro;
         _selectedVoiceMode = config.Agent.Realtime.VoiceMode;
         _voiceName = config.Agent.Realtime.Voice;
         _selectedInputDeviceId = config.Agent.Realtime.InputAudioDeviceId;
@@ -365,6 +369,35 @@ public sealed class AgentPanelViewModel : ObservableObject
                 return;
             }
             PersistConfig(c => c.Agent.ClaudeCli.WorkspaceFolder = value ?? "");
+        }
+    }
+
+    /// <summary>Run the Claude CLI inside WSL. When true, <see cref="WorkspaceFolder"/> is a Linux path
+    /// (e.g. /home/you/repos) and the CLI is launched via wsl.exe in the <see cref="WslDistro"/> distro.</summary>
+    public bool UseWsl
+    {
+        get => _useWsl;
+        set
+        {
+            if (!SetProperty(ref _useWsl, value))
+            {
+                return;
+            }
+            PersistConfig(c => c.Agent.ClaudeCli.UseWsl = value);
+        }
+    }
+
+    /// <summary>WSL distro name (blank = the default distro). Only used when <see cref="UseWsl"/> is on.</summary>
+    public string WslDistro
+    {
+        get => _wslDistro;
+        set
+        {
+            if (!SetProperty(ref _wslDistro, value))
+            {
+                return;
+            }
+            PersistConfig(c => c.Agent.ClaudeCli.WslDistro = value ?? "");
         }
     }
 

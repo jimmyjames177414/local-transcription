@@ -50,6 +50,9 @@ internal sealed class ClaudeCliProcess : IClaudeProcess
             StandardOutputEncoding = Encoding.UTF8,
             StandardErrorEncoding = Encoding.UTF8
         };
+        // Force wsl.exe's own messages to UTF-8 (it defaults to UTF-16 when stdout is redirected,
+        // which would corrupt the stream-json parse). Ignored by the native-Windows claude.exe.
+        psi.Environment["WSL_UTF8"] = "1";
         foreach (var arg in request.Arguments)
         {
             psi.ArgumentList.Add(arg);

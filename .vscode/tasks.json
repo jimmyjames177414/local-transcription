@@ -100,8 +100,22 @@
             "problemMatcher": []
         },
         {
+            "label": "Debug: kill stray app",
+            "type": "shell",
+            "command": "powershell",
+            "args": [
+                "-NoProfile",
+                "-ExecutionPolicy",
+                "Bypass",
+                "-File",
+                "${workspaceFolder}/scripts/kill-stray-app.ps1"
+            ],
+            "problemMatcher": []
+        },
+        {
             "label": "Debug: build + follow logs",
             "dependsOn": [
+                "Debug: kill stray app",
                 "build"
             ],
             "dependsOrder": "sequence",

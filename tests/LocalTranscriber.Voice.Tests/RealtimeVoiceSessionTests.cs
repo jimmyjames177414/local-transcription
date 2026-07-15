@@ -139,7 +139,9 @@ public class RealtimeVoiceSessionTests
             () => new FakeRecorder(null),
             new EmptyContextService(),
             tailerFactory: null,
-            micStreamFactory: () => new FakeMicStream(frames: 3));
+            // 3 frames x 2000 bytes = 6000 > the 4800-byte (100ms @ 24kHz PCM16) commit floor,
+            // so the turn streams enough audio to be committed rather than skipped as too-short.
+            micStreamFactory: () => new FakeMicStream(frames: 3, frameBytes: 2000));
 
         await session.StartAsync();
         await session.OnPushToTalkDownAsync();

@@ -14,6 +14,13 @@ public sealed record ClaudeCliConversationOptions
     public required string WorkspaceFolder { get; init; }
     public string Model { get; init; } = "";
     public bool AllowEditsAndCommands { get; init; }
+
+    /// <summary>Run claude inside WSL: launch wsl.exe, cd into the Linux <see cref="WorkspaceFolder"/>,
+    /// exec <see cref="ExecutablePath"/> there. Windows path args (notes) are translated to /mnt/…</summary>
+    public bool UseWsl { get; init; }
+
+    /// <summary>WSL distro for <c>wsl.exe -d</c>; empty uses the default distro.</summary>
+    public string WslDistro { get; init; } = "";
     public int TimeoutSeconds { get; init; } = 300;
     public int MaxTranscriptEvents { get; init; } = 10;
     public RealtimeVoiceMode Mode { get; init; } = RealtimeVoiceMode.Hybrid;
@@ -224,7 +231,9 @@ public sealed class ClaudeCliConversation : IRealtimeVoiceConversation
             return;
         }
 
-        if (!Directory.Exists(_options.WorkspaceFolder))
+        // In WSL mode the workspace is a Linux path validated at construction; Directory.Exists
+        // (a Windows check) would always fail on it, so only guard the native-Windows case here.
+        if (!_options.UseWsl && !Directory.Exists(_options.WorkspaceFolder))
         {
             _turnLock.Release();
             ErrorOccurred?.Invoke(this, $"Workspace folder not found: {_options.WorkspaceFolder}");
@@ -243,7 +252,9 @@ public sealed class ClaudeCliConversation : IRealtimeVoiceConversation
         {
             SetState(RealtimeVoiceState.Thinking);
             string prompt = await BuildPromptAsync(userText, turnCts.Token).ConfigureAwait(false);
-            var request = new ClaudeProcessRequest(_options.ExecutablePath, _options.WorkspaceFolder, BuildArgs(prompt));
+            var request = _options.UseWsl
+                ? BuildWslRequest(BuildArgs(prompt))
+                : new ClaudeProcessRequest(_options.ExecutablePath, _options.WorkspaceFolder, BuildArgs(prompt));
             process = _processFactory(request);
 
             bool errored = false;
@@ -339,14 +350,23 @@ public sealed class ClaudeCliConversation : IRealtimeVoiceConversation
         // to keep the notes rebuilt. Requires write capability, so it is gated on full-agent mode.
         if (MaintainsNotes)
         {
-            string? notesDir = Path.GetDirectoryName(_options.NotesFilePath!);
+            // The notes file lives on the Windows side; in WSL mode Claude reaches it via /mnt/…,
+            // so translate both the file path (embedded in the directive) and its --add-dir folder.
+            string notesFile = _options.NotesFilePath!;
+            string notesDir = Path.GetDirectoryName(notesFile) ?? "";
+            if (_options.UseWsl)
+            {
+                notesFile = ToWslPath(notesFile);
+                notesDir = string.IsNullOrEmpty(notesDir) ? "" : ToWslPath(notesDir);
+            }
+
             if (!string.IsNullOrEmpty(notesDir))
             {
                 args.Add("--add-dir");
                 args.Add(notesDir);
             }
             args.Add("--append-system-prompt");
-            args.Add(NotesDirective(_options.NotesFilePath!));
+            args.Add(NotesDirective(notesFile));
         }
 
         if (!string.IsNullOrWhiteSpace(_options.Model))
@@ -370,6 +390,53 @@ public sealed class ClaudeCliConversation : IRealtimeVoiceConversation
 
         args.Add(prompt); // positional prompt last
         return args;
+    }
+
+    /// <summary>
+    /// Wraps the claude invocation to run inside WSL:
+    ///   <c>wsl.exe [-d distro] --cd &lt;workspace&gt; -- bash -ic "exec &lt;claude&gt; 'arg' 'arg' …"</c>
+    /// <c>--cd</c> sets the Linux working directory (reliable, unlike passing it through the shell);
+    /// the interactive shell loads the nvm-managed node/claude onto PATH; and every claude argument is
+    /// POSIX single-quoted into one command string so the free-text prompt cannot break parsing.
+    /// wsl.exe itself gets a valid Windows working directory (the Linux cwd comes from --cd).
+    /// </summary>
+    private ClaudeProcessRequest BuildWslRequest(IReadOnlyList<string> claudeArgs)
+    {
+        var script = new StringBuilder("exec ").Append(ShellQuote(_options.ExecutablePath));
+        foreach (var arg in claudeArgs)
+        {
+            script.Append(' ').Append(ShellQuote(arg));
+        }
+
+        var wslArgs = new List<string>();
+        if (!string.IsNullOrWhiteSpace(_options.WslDistro))
+        {
+            wslArgs.Add("-d");
+            wslArgs.Add(_options.WslDistro);
+        }
+        wslArgs.Add("--cd");
+        wslArgs.Add(_options.WorkspaceFolder);
+        wslArgs.Add("--");
+        wslArgs.Add("bash");
+        wslArgs.Add("-ic");
+        wslArgs.Add(script.ToString());
+
+        return new ClaudeProcessRequest("wsl.exe", AppContext.BaseDirectory, wslArgs);
+    }
+
+    /// <summary>POSIX single-quote a string so a shell treats it as one literal argument.</summary>
+    internal static string ShellQuote(string s) => "'" + s.Replace("'", "'\\''") + "'";
+
+    /// <summary>Translates an absolute Windows path to its WSL <c>/mnt/&lt;drive&gt;/…</c> equivalent.</summary>
+    internal static string ToWslPath(string windowsPath)
+    {
+        string full = Path.GetFullPath(windowsPath);
+        if (full.Length >= 2 && full[1] == ':')
+        {
+            char drive = char.ToLowerInvariant(full[0]);
+            return "/mnt/" + drive + full.Substring(2).Replace('\\', '/');
+        }
+        return full.Replace('\\', '/');
     }
 
     /// <summary>

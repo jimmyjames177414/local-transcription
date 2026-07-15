@@ -51,6 +51,7 @@ public sealed class RealtimeVoiceSession : IRealtimeVoiceConversation
     private Channel<byte[]>? _micChannel;
     private Task? _micPump;
     private int _micFramesSent;
+    private int _micBytesSent;
     private string? _currentItemId;
     private RealtimeVoiceState _state = RealtimeVoiceState.Idle;
 
@@ -190,6 +191,20 @@ public sealed class RealtimeVoiceSession : IRealtimeVoiceConversation
 
     private object BuildSessionUpdate(string instructions)
     {
+        // Build audio.input as a dict so we can conditionally add transcription.
+        var audioInput = new Dictionary<string, object?>
+        {
+            ["format"] = new { type = "audio/pcm", rate = 24000 },
+            ["turn_detection"] = ConfigureTurnDetection()
+        };
+        // PushToTalk/Continuous: ask the server to transcribe the user's audio so the UI can
+        // replace the "🎙" placeholder. Nested under audio.input per the GA Realtime API schema;
+        // the old session-root "input_audio_transcription" field is rejected as unknown.
+        if (_options.Mode != RealtimeVoiceMode.Hybrid)
+        {
+            audioInput["transcription"] = new { model = "whisper-1" };
+        }
+
         var session = new Dictionary<string, object?>
         {
             ["type"] = "realtime",
@@ -199,11 +214,7 @@ public sealed class RealtimeVoiceSession : IRealtimeVoiceConversation
             ["instructions"] = instructions,
             ["audio"] = new
             {
-                input = new
-                {
-                    format = new { type = "audio/pcm", rate = 24000 },
-                    turn_detection = ConfigureTurnDetection()
-                },
+                input = audioInput,
                 output = new
                 {
                     voice = _options.Voice,
@@ -211,12 +222,6 @@ public sealed class RealtimeVoiceSession : IRealtimeVoiceConversation
                 }
             }
         };
-
-        // Enable server-side transcription for audio modes so the UI can show what the user said.
-        if (_options.Mode != RealtimeVoiceMode.Hybrid)
-        {
-            session["input_audio_transcription"] = new { model = "whisper-1" };
-        }
 
         if (_options.Tools.Count > 0)
         {
@@ -290,14 +295,19 @@ public sealed class RealtimeVoiceSession : IRealtimeVoiceConversation
 
         if (_options.Mode == RealtimeVoiceMode.PushToTalk)
         {
-            // Read and reset the frame counter before stopping so we know if any audio was sent.
+            // Read and reset both counters before stopping so we know if enough audio was sent.
             int framesSent = Interlocked.Exchange(ref _micFramesSent, 0);
+            int bytesSent  = Interlocked.Exchange(ref _micBytesSent, 0);
             await StopMicStreamingAsync().ConfigureAwait(false);
 
-            if (framesSent == 0)
+            // 100ms at 24 kHz PCM16 mono = 4800 bytes. The server rejects anything smaller.
+            // framesSent==0 catches a total mic failure; bytesSent guards against a brief connect
+            // that dropped before 100ms of audio could accumulate (Bluetooth HFP race condition).
+            const int MinAudioBytes = 4800;
+            if (framesSent == 0 || bytesSent < MinAudioBytes)
             {
-                // Mic failed to start (error was already fired in OnPushToTalkDownAsync).
-                // Don't commit an empty buffer — OpenAI rejects it with "buffer too small".
+                // Mic failed or captured too little — error was already fired earlier.
+                // Don't commit — OpenAI rejects sub-100ms buffers and leaves a stuck response.
                 SetState(RealtimeVoiceState.Ready);
                 return;
             }
@@ -390,6 +400,7 @@ public sealed class RealtimeVoiceSession : IRealtimeVoiceConversation
         if (_micChannel?.Writer.TryWrite(frame) == true)
         {
             Interlocked.Increment(ref _micFramesSent);
+            Interlocked.Add(ref _micBytesSent, frame.Length);
         }
     }
 

@@ -31,9 +31,10 @@ public sealed class NotesPanelViewModel : ObservableObject
         get => _content;
         set
         {
-            if (SetProperty(ref _content, value) && !_suppressSave)
+            if (SetProperty(ref _content, value))
             {
-                _isDirty = true;
+                if (!_suppressSave) _isDirty = true;
+                OnPropertyChanged(nameof(IsEmpty));
             }
         }
     }

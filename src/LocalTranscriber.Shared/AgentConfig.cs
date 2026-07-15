@@ -55,8 +55,17 @@ public sealed class ClaudeCliAgentConfig
     /// <summary>CLI executable; resolved on PATH (→ claude.exe on Windows) when not an absolute path.</summary>
     public string ExecutablePath { get; set; } = "claude";
 
-    /// <summary>Process working directory the CLI runs in (required). The chosen project root.</summary>
+    /// <summary>Process working directory the CLI runs in (required). The chosen project root.
+    /// When <see cref="UseWsl"/> is true this is a Linux path inside the distro (e.g. /home/you/repos).</summary>
     public string WorkspaceFolder { get; set; } = "";
+
+    /// <summary>Run the CLI inside WSL instead of natively on Windows. When true, the app launches
+    /// <c>wsl.exe</c>, runs <see cref="ExecutablePath"/> (the WSL <c>claude</c>) in <see cref="WorkspaceFolder"/>
+    /// (a Linux path), and translates any Windows paths handed to Claude (notes file) to <c>/mnt/…</c>.</summary>
+    public bool UseWsl { get; set; }
+
+    /// <summary>WSL distro name passed to <c>wsl.exe -d</c>; empty uses the default distro.</summary>
+    public string WslDistro { get; set; } = "";
 
     /// <summary>Model alias passed with --model (e.g. "opus"); empty uses the CLI default.</summary>
     public string Model { get; set; } = "";

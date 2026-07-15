@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using LocalTranscriber.Shared;
 using Whisper.net;
 
 namespace LocalTranscriber.AI;
@@ -9,6 +10,11 @@ namespace LocalTranscriber.AI;
 /// </summary>
 public sealed class WhisperCppTranscriptionService : ILocalTranscriptionService, IDisposable
 {
+    // TEMP DIAGNOSTIC: set LT_TRANSCRIBE_DEBUG=1 to log when the Silero VAD pre-filter
+    // drops a window (finds no speech) so its threshold can be tuned from real numbers.
+    private static readonly bool TranscribeDebug =
+        Environment.GetEnvironmentVariable("LT_TRANSCRIBE_DEBUG") == "1";
+
     private readonly SemaphoreSlim _lock = new(1, 1);
     private WhisperFactory? _factory;
     private string? _loadedModelPath;
@@ -41,12 +47,21 @@ public sealed class WhisperCppTranscriptionService : ILocalTranscriptionService,
         try
         {
             // A4: VAD pre-filter — skip whisper entirely if no speech detected.
+            bool vadWouldDrop = false;
+            int vadSegmentCount = -1;
             if (request.EnableVad && !string.IsNullOrEmpty(request.VadModelPath) && File.Exists(request.VadModelPath))
             {
                 var vadFactory = GetVadFactory(request.VadModelPath);
                 using var vadProcessor = vadFactory.CreateBuilder().Build();
                 var speechSegments = vadProcessor.DetectSpeech(samples);
-                if (speechSegments.Count == 0)
+                vadSegmentCount = speechSegments.Count;
+                vadWouldDrop = vadSegmentCount == 0;
+
+                // Normal behavior: drop the window when the VAD finds no speech.
+                // TEMP DIAGNOSTIC: when LT_TRANSCRIBE_DEBUG=1, DON'T early-return —
+                // fall through to whisper so we can log what the VAD would have discarded,
+                // then still drop it below to keep production behavior identical.
+                if (vadWouldDrop && !TranscribeDebug)
                 {
                     return new TranscriptionResult("", Array.Empty<TranscribedSegment>(), null, stopwatch.Elapsed);
                 }
@@ -102,6 +117,33 @@ public sealed class WhisperCppTranscriptionService : ILocalTranscriptionService,
             stopwatch.Stop();
             string text = string.Join(" ", segments.Select(s => s.Text)).Trim();
             double? confidence = segments.Count > 0 ? segments.Average(s => s.Confidence ?? 0) : null;
+
+            if (TranscribeDebug && vadSegmentCount >= 0)
+            {
+                double seconds = samples.Length / (double)WavSampleReader.WhisperSampleRate;
+                string preview = text.Length > 120 ? text[..120] + "…" : text;
+                if (vadWouldDrop)
+                {
+                    // The decisive line: what did whisper hear in a window the VAD wanted to discard?
+                    AppLog.Info("transcribe-debug",
+                        $"VAD-DROP CHECK dur={seconds:F1}s vadSegments=0 -> whisper text=\"{preview}\" " +
+                        (string.IsNullOrWhiteSpace(text)
+                            ? "(empty — VAD was CORRECT)"
+                            : "(NON-EMPTY — VAD DROPPED REAL SPEECH)"));
+                }
+                else
+                {
+                    AppLog.Info("transcribe-debug",
+                        $"VAD passed: {vadSegmentCount} segment(s) -> whisper text=\"{preview}\"");
+                }
+            }
+
+            // Preserve production behavior: a window the VAD rejected is still dropped
+            // (we only ran whisper above to log what would have been lost).
+            if (vadWouldDrop)
+            {
+                return new TranscriptionResult("", Array.Empty<TranscribedSegment>(), null, stopwatch.Elapsed);
+            }
 
             return new TranscriptionResult(text, segments, confidence, stopwatch.Elapsed);
         }

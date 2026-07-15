@@ -33,6 +33,11 @@ public sealed class RealTranscriptionEngine : ITranscriptionEngine, IAsyncDispos
     private readonly Channel<TranscriptEvent> _events = Channel.CreateUnbounded<TranscriptEvent>();
     private readonly List<string> _warnings = new();
 
+    // TEMP DIAGNOSTIC: set LT_TRANSCRIBE_DEBUG=1 to log the peak level of every window
+    // (accepted or dropped) so the 0.015 silence gate can be tuned from real numbers.
+    private static readonly bool TranscribeDebug =
+        Environment.GetEnvironmentVariable("LT_TRANSCRIBE_DEBUG") == "1";
+
     private TranscriptionSessionOptions? _options;
     private ITranscriptWriter? _writer;
     private IAudioCaptureService? _mic;
@@ -268,7 +273,19 @@ public sealed class RealTranscriptionEngine : ITranscriptionEngine, IAsyncDispos
             return;
         }
 
-        if (AudioWindowBuffer.Peak(window) < 0.015)
+        double peak = AudioWindowBuffer.Peak(window);
+        bool belowGate = peak < 0.015;
+
+        if (TranscribeDebug)
+        {
+            int bytesPerSec = window.SampleRate * window.Channels * (window.BitsPerSample / 8);
+            double seconds = bytesPerSec > 0 ? (double)window.Data.Length / bytesPerSec : 0;
+            AppLog.Info("transcribe-debug",
+                $"window src={window.Source} dur={seconds:F1}s peak={peak:F4} gate=0.015 " +
+                (belowGate ? "-> DROPPED (below peak gate)" : "-> passed peak gate"));
+        }
+
+        if (belowGate)
         {
             return; // silence — transcribing it only invites whisper hallucinations
         }

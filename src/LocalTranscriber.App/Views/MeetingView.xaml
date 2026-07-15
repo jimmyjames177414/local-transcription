@@ -849,11 +849,20 @@
                         x:Name="NotesMarkdownViewer"
                         Markdown="{Binding Notes.Content}"
                         Foreground="{StaticResource Brush.Text.Body}"
-                        Background="Transparent"
+                        Background="{StaticResource Brush.Bg.Notes}"
                         Padding="10,10"
                         FontSize="12"
                         VerticalScrollBarVisibility="Auto"
-                        Visibility="{Binding Notes.IsEditing, Converter={StaticResource InverseBoolToVisibility}}" />
+                        Visibility="{Binding Notes.IsEditing, Converter={StaticResource InverseBoolToVisibility}}">
+                        <mdxaml:MarkdownScrollViewer.MarkdownStyle>
+                            <Style TargetType="FlowDocument">
+                                <Setter Property="Foreground" Value="{StaticResource Brush.Text.Body}" />
+                                <Setter Property="Background" Value="{StaticResource Brush.Bg.Notes}" />
+                                <Setter Property="FontFamily" Value="{StaticResource Font.Ui}" />
+                                <Setter Property="FontSize" Value="12" />
+                            </Style>
+                        </mdxaml:MarkdownScrollViewer.MarkdownStyle>
+                    </mdxaml:MarkdownScrollViewer>
                     <!-- Edit: raw markdown TextBox -->
                     <TextBox x:Name="NotesTextBox"
                              Text="{Binding Notes.Content, UpdateSourceTrigger=PropertyChanged}"

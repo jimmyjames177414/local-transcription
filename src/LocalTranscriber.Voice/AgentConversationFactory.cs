@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using LocalTranscriber.Shared;
 using LocalTranscriber.Storage;
 
@@ -74,21 +75,40 @@ public static class AgentConversationFactory
             return new RealtimeVoiceFactory.Resolution(null, "Choose a workspace folder for the Claude CLI backend (Settings → Assistant & privacy).");
         }
 
-        if (!Directory.Exists(cli.WorkspaceFolder))
+        string executable;
+        string workspace;
+        if (cli.UseWsl)
         {
-            return new RealtimeVoiceFactory.Resolution(null, $"Workspace folder does not exist: {cli.WorkspaceFolder}");
+            // WSL: workspace is a Linux path inside the distro; validate it there rather than on Windows.
+            // The executable name (e.g. "claude") is resolved on the WSL PATH at launch, not here.
+            if (!WslDirectoryExists(cli.WslDistro, cli.WorkspaceFolder, out string wslError))
+            {
+                return new RealtimeVoiceFactory.Resolution(null, wslError);
+            }
+            executable = string.IsNullOrWhiteSpace(cli.ExecutablePath) ? "claude" : cli.ExecutablePath;
+            workspace = cli.WorkspaceFolder; // leave the Linux path untouched
         }
-
-        string? executable = ResolveExecutable(cli.ExecutablePath);
-        if (executable is null)
+        else
         {
-            return new RealtimeVoiceFactory.Resolution(null, $"Claude CLI executable not found: '{cli.ExecutablePath}' (not an existing path or on PATH).");
+            if (!Directory.Exists(cli.WorkspaceFolder))
+            {
+                return new RealtimeVoiceFactory.Resolution(null, $"Workspace folder does not exist: {cli.WorkspaceFolder}");
+            }
+            string? resolved = ResolveExecutable(cli.ExecutablePath);
+            if (resolved is null)
+            {
+                return new RealtimeVoiceFactory.Resolution(null, $"Claude CLI executable not found: '{cli.ExecutablePath}' (not an existing path or on PATH).");
+            }
+            executable = resolved;
+            workspace = Path.GetFullPath(cli.WorkspaceFolder);
         }
 
         var options = new ClaudeCliConversationOptions
         {
             ExecutablePath = executable,
-            WorkspaceFolder = Path.GetFullPath(cli.WorkspaceFolder),
+            WorkspaceFolder = workspace,
+            UseWsl = cli.UseWsl,
+            WslDistro = cli.WslDistro,
             Model = cli.Model,
             AllowEditsAndCommands = cli.AllowEditsAndCommands,
             TimeoutSeconds = cli.TimeoutSeconds,
@@ -102,6 +122,60 @@ public static class AgentConversationFactory
         };
 
         return new RealtimeVoiceFactory.Resolution(new ClaudeCliConversation(options), null);
+    }
+
+    /// <summary>Checks a Linux directory exists inside WSL via <c>wsl.exe [-d distro] -- test -d path</c>.</summary>
+    internal static bool WslDirectoryExists(string distro, string linuxPath, out string error)
+    {
+        error = "";
+        try
+        {
+            var psi = new ProcessStartInfo("wsl.exe")
+            {
+                UseShellExecute = false,
+                RedirectStandardError = true,
+                RedirectStandardOutput = true,
+                CreateNoWindow = true
+            };
+            if (!string.IsNullOrWhiteSpace(distro))
+            {
+                psi.ArgumentList.Add("-d");
+                psi.ArgumentList.Add(distro);
+            }
+            psi.ArgumentList.Add("--");
+            psi.ArgumentList.Add("test");
+            psi.ArgumentList.Add("-d");
+            psi.ArgumentList.Add(linuxPath);
+
+            using var p = Process.Start(psi);
+            if (p is null)
+            {
+                error = "Could not launch wsl.exe. Is WSL installed?";
+                return false;
+            }
+            // Drain both pipes so a chatty wsl.exe (e.g. a first-run/update notice) can't fill the
+            // buffer and deadlock the WaitForExit below.
+            _ = p.StandardOutput.ReadToEndAsync();
+            _ = p.StandardError.ReadToEndAsync();
+            if (!p.WaitForExit(10000))
+            {
+                try { p.Kill(entireProcessTree: true); } catch { /* best effort */ }
+                error = "WSL check timed out (distro not responding).";
+                return false;
+            }
+            if (p.ExitCode != 0)
+            {
+                string where = string.IsNullOrWhiteSpace(distro) ? "the default WSL distro" : $"WSL distro '{distro}'";
+                error = $"WSL workspace not found: '{linuxPath}' in {where}.";
+                return false;
+            }
+            return true;
+        }
+        catch (Exception ex)
+        {
+            error = $"WSL not available: {ex.Message}";
+            return false;
+        }
     }
 
     /// <summary>Returns the resolved executable path (an existing file, or the first PATH hit), else null.</summary>
