@@ -2,6 +2,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\LocalTranscriber.Engine\LocalTranscriber.Engine.csproj" />
+    <ProjectReference Include="..\LocalTranscriber.Storage\LocalTranscriber.Storage.csproj" />
     <ProjectReference Include="..\LocalTranscriber.Agent\LocalTranscriber.Agent.csproj" />
     <ProjectReference Include="..\LocalTranscriber.Voice\LocalTranscriber.Voice.csproj" />
   </ItemGroup>
@@ -9,6 +10,7 @@
   <ItemGroup>
     <PackageReference Include="MdXaml" Version="1.27.0" />
     <PackageReference Include="MdXaml.Plugins" Version="1.27.0" />
+    <PackageReference Include="Microsoft.Extensions.Hosting" Version="10.0.9" />
   </ItemGroup>
 
   <PropertyGroup>

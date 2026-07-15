@@ -1,13 +1,76 @@
-﻿using System.Configuration;
-using System.Data;
 using System.Windows;
+using LocalTranscriber.App.Services;
+using LocalTranscriber.App.ViewModels;
+using LocalTranscriber.Engine;
+using LocalTranscriber.Engine.Ipc;
+using LocalTranscriber.Storage;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Hosting;
 
 namespace LocalTranscriber.App;
 
 /// <summary>
-/// Interaction logic for App.xaml
+/// Interaction logic for App.xaml. Builds the generic host that composes the shared engine, the
+/// control pipe, and the window's view-models via DI — so the WPF front-end wires the engine the
+/// same way the MCP server does, instead of hand-constructing it deep inside a view-model.
+///
+/// The screens are registered with factory lambdas that mirror the exact wiring the window used to
+/// do inline (the inter-view-model links, e.g. AgentPanel reading the live transcript path from the
+/// session, resolve the singleton view-models lazily). Bindings and XAML are unchanged: the window
+/// still exposes the same view-model properties and sets DataContext = this.
 /// </summary>
 public partial class App : Application
 {
-}
+    private IHost? _host;
 
+    protected override void OnStartup(StartupEventArgs e)
+    {
+        base.OnStartup(e);
+
+        var config = new ConfigService().Load();
+
+        var builder = Host.CreateApplicationBuilder();
+        builder.Services.AddTranscriptionCore(config);
+
+        // The control pipe is owned by the host and drives the same engine singleton the UI uses.
+        builder.Services.AddSingleton(sp => new EngineIpcServer(sp.GetRequiredService<ITranscriptionEngine>()));
+
+        builder.Services.AddSingleton(sp => new MainWindowViewModel(
+            sp.GetRequiredService<ITranscriptionEngine>(), sp.GetRequiredService<ConfigService>()));
+        builder.Services.AddSingleton(sp => new SettingsViewModel(sp.GetRequiredService<ConfigService>()));
+        builder.Services.AddSingleton(sp => new SpeakerManagementViewModel(
+            configService: sp.GetRequiredService<ConfigService>()));
+        builder.Services.AddSingleton(sp => new AgentPanelViewModel(
+            configService: sp.GetRequiredService<ConfigService>(),
+            currentTranscriptPath: () => sp.GetRequiredService<MainWindowViewModel>().GroundingJsonlPath));
+        builder.Services.AddSingleton(sp => new SessionsViewModel(
+            configService: sp.GetRequiredService<ConfigService>(),
+            isRecording: () => sp.GetRequiredService<MainWindowViewModel>().IsRecording));
+        builder.Services.AddSingleton(sp => new NotesService(
+            () => sp.GetRequiredService<AgentPanelViewModel>().OutputFolder));
+        builder.Services.AddSingleton(sp => new NotesPanelViewModel(sp.GetRequiredService<NotesService>()));
+        builder.Services.AddSingleton<MainWindow>();
+
+        _host = builder.Build();
+        _host.Services.GetRequiredService<EngineIpcServer>().Start();
+
+        _host.Services.GetRequiredService<MainWindow>().Show();
+    }
+
+    protected override void OnExit(ExitEventArgs e)
+    {
+        // Async disposal: the engine and the IPC server are IAsyncDisposable, so a synchronous
+        // container dispose would throw. Blocking here is fine at teardown (engine work runs on
+        // ConfigureAwait(false), so it does not need the UI thread).
+        if (_host is IAsyncDisposable asyncHost)
+        {
+            asyncHost.DisposeAsync().AsTask().GetAwaiter().GetResult();
+        }
+        else
+        {
+            _host?.Dispose();
+        }
+
+        base.OnExit(e);
+    }
+}
