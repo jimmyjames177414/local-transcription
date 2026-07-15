@@ -16,18 +16,51 @@ public static class AgentConversationFactory
         SecretsService? secrets = null,
         string? transcriptJsonlPath = null,
         IReadOnlyList<RealtimeToolDefinition>? tools = null,
-        Func<RealtimeToolCall, Task<string>>? toolHandler = null)
+        Func<RealtimeToolCall, Task<string>>? toolHandler = null,
+        string? notesFilePath = null)
     {
         string provider = (config.Agent.Provider ?? "openai").Trim().ToLowerInvariant();
 
         return provider switch
         {
-            "claude-cli" => CreateClaudeCli(config, transcriptJsonlPath),
+            "claude-cli" => CreateClaudeCli(config, transcriptJsonlPath, notesFilePath),
+            "hybrid" => CreateHybrid(config, secrets, transcriptJsonlPath, notesFilePath),
             _ => RealtimeVoiceFactory.Create(config, secrets, transcriptJsonlPath, tools, toolHandler)
         };
     }
 
-    private static RealtimeVoiceFactory.Resolution CreateClaudeCli(AppConfig config, string? transcriptJsonlPath)
+    /// <summary>Claude CLI as the brain + OpenAI realtime as the voice (speaks Claude's replies).</summary>
+    private static RealtimeVoiceFactory.Resolution CreateHybrid(
+        AppConfig config, SecretsService? secrets, string? transcriptJsonlPath, string? notesFilePath)
+    {
+        var brainResolution = CreateClaudeCli(config, transcriptJsonlPath, notesFilePath);
+        if (brainResolution.Session is not ClaudeCliConversation brain)
+        {
+            return brainResolution; // surfaces the workspace/executable notice
+        }
+
+        IReplySpeaker? speaker = null;
+        // The voice (mouth) is optional: only when the user wants spoken replies and a key resolves.
+        // Without it the hybrid still works as captions-only, so a missing key is not a hard failure.
+        if (config.Agent.Realtime.SpeakReplies)
+        {
+            var (key, _) = (secrets ?? new SecretsService()).ResolveOpenAIKey(config.Agent.Realtime.ApiKeyEnvironmentVariable);
+            if (key is not null)
+            {
+                speaker = new RealtimeSpeaker(new RealtimeSpeakerOptions
+                {
+                    ApiKey = key,
+                    Model = config.Agent.Realtime.Model,
+                    Voice = config.Agent.Realtime.Voice,
+                    OutputAudioDeviceId = config.Agent.Realtime.OutputAudioDeviceId
+                });
+            }
+        }
+
+        return new RealtimeVoiceFactory.Resolution(new HybridBrainConversation(brain, speaker), null);
+    }
+
+    private static RealtimeVoiceFactory.Resolution CreateClaudeCli(AppConfig config, string? transcriptJsonlPath, string? notesFilePath)
     {
         var cli = config.Agent.ClaudeCli;
 
@@ -64,7 +97,8 @@ public static class AgentConversationFactory
             TranscriptJsonlPath = transcriptJsonlPath,
             InputAudioDeviceId = config.Agent.Realtime.InputAudioDeviceId,
             WhisperModelPath = config.WhisperModelPath,
-            AgentOutputFolder = config.Agent.AgentOutputFolder
+            AgentOutputFolder = config.Agent.AgentOutputFolder,
+            NotesFilePath = notesFilePath
         };
 
         return new RealtimeVoiceFactory.Resolution(new ClaudeCliConversation(options), null);

@@ -169,6 +169,38 @@ public class ClaudeCliConversationTests
     }
 
     [Fact]
+    public async Task NotesMaintenance_WhenFullAgent_AddsDirAndSystemPrompt()
+    {
+        string ws = Directory.CreateTempSubdirectory().FullName;
+        string notes = Path.Combine(Path.GetTempPath(), "lt-notes", "notes-x.md");
+        var opts = Options(ws) with { AllowEditsAndCommands = true, NotesFilePath = notes };
+        var harness = new Harness(opts, _ => new FakeClaudeProcess(SuccessTurn("s", "ok"), 0));
+
+        await harness.RunTurnAsync("q");
+
+        var args = harness.Requests[0].ToList();
+        Assert.Contains("--add-dir", args);
+        Assert.Equal(Path.GetDirectoryName(notes), args[args.IndexOf("--add-dir") + 1]);
+        Assert.Contains("--append-system-prompt", args);
+        Assert.Contains(notes, args[args.IndexOf("--append-system-prompt") + 1]);
+    }
+
+    [Fact]
+    public async Task NotesMaintenance_Skipped_WhenReadOnly()
+    {
+        string ws = Directory.CreateTempSubdirectory().FullName;
+        string notes = Path.Combine(Path.GetTempPath(), "lt-notes", "notes-y.md");
+        var opts = Options(ws) with { AllowEditsAndCommands = false, NotesFilePath = notes };
+        var harness = new Harness(opts, _ => new FakeClaudeProcess(SuccessTurn("s", "ok"), 0));
+
+        await harness.RunTurnAsync("q");
+
+        var args = harness.Requests[0].ToList();
+        Assert.DoesNotContain("--add-dir", args);
+        Assert.DoesNotContain("--append-system-prompt", args);
+    }
+
+    [Fact]
     public async Task NonZeroExit_RaisesError_NotCompletion()
     {
         string ws = Directory.CreateTempSubdirectory().FullName;

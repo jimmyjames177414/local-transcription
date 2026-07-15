@@ -29,6 +29,7 @@ public partial class MainWindow : Window
         Notes = new NotesPanelViewModel(_notesService);
         AgentPanel.SaveNote = (markdown) => _notesService.WriteAsync(markdown);
         AgentPanel.ReadNote = () => _notesService.Content;
+        AgentPanel.NotesFilePath = () => _notesService.FilePath;
         AgentPanel.ConsentRequested += OnConsentRequested;
         AgentPanel.FullAgentConsentRequested += OnFullAgentConsentRequested;
         SessionsPanel.DeleteRequested += item => _ = OnDeleteSessionRequestedAsync(item);

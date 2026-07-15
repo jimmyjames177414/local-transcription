@@ -114,7 +114,7 @@ public sealed class AgentPanelViewModel : ObservableObject
     /// The missing-OpenAI-key banner applies only to the OpenAI backend; claude-cli authenticates
     /// through the CLI's own login and needs no OpenAI key.
     /// </summary>
-    public bool ShowOpenAiKeyWarning => AgentEnabled && !HasApiKey && !IsClaudeCli;
+    public bool ShowOpenAiKeyWarning => AgentEnabled && !HasApiKey && !UsesClaudeBrain;
 
     public string ApiKeyNotice
     {
@@ -174,6 +174,12 @@ public sealed class AgentPanelViewModel : ObservableObject
     /// </summary>
     public Func<string>? ReadNote { get; set; }
 
+    /// <summary>
+    /// Set by the shell: returns the session's notes file path. The claude-cli backend maintains this
+    /// file directly with its own tools (the brain owns the notes); the file-watcher reloads the panel.
+    /// </summary>
+    public Func<string>? NotesFilePath { get; set; }
+
     public AsyncRelayCommand StartVoiceCommand { get; }
     public AsyncRelayCommand StopVoiceCommand { get; }
     public AsyncRelayCommand SendTextCommand { get; }
@@ -216,7 +222,7 @@ public sealed class AgentPanelViewModel : ObservableObject
     /// (it kills its child process); the OpenAI realtime <see cref="IRealtimeVoiceConversation.CancelTurn"/>
     /// is a no-op, so offering Cancel there would mislead.
     /// </summary>
-    public bool CanCancelTurn => IsClaudeCli && IsThinking;
+    public bool CanCancelTurn => UsesClaudeBrain && IsThinking;
 
     public string PillText => _pillState switch
     {
@@ -307,16 +313,25 @@ public sealed class AgentPanelViewModel : ObservableObject
     }
 
     /// <summary>Assistant backends the user can pick between.</summary>
-    public string[] Providers { get; } = { "openai", "claude-cli" };
+    public string[] Providers { get; } = { "openai", "claude-cli", "hybrid" };
 
-    /// <summary>True when the claude-cli backend is selected (drives workspace UI + typed-chat gating).</summary>
+    /// <summary>True when the claude-cli backend is selected.</summary>
     public bool IsClaudeCli => string.Equals(_selectedProvider, "claude-cli", StringComparison.OrdinalIgnoreCase);
 
+    /// <summary>True when the hybrid backend is selected (Claude brain + OpenAI voice).</summary>
+    public bool IsHybrid => string.Equals(_selectedProvider, "hybrid", StringComparison.OrdinalIgnoreCase);
+
     /// <summary>
-    /// Whether a conversation can be held. claude-cli is typed-chat first, so it needs no voice mode;
-    /// the OpenAI backend still requires a non-off voice mode (its only channel is the realtime socket).
+    /// Both claude-cli and hybrid use Claude CLI as the brain, so they share the workspace UI, typed-chat
+    /// gating, mid-turn cancel, and the "no OpenAI key required to be usable" behaviour.
     /// </summary>
-    private bool CanConverse => IsClaudeCli || SelectedVoiceMode != "off";
+    public bool UsesClaudeBrain => IsClaudeCli || IsHybrid;
+
+    /// <summary>
+    /// Whether a conversation can be held. The Claude-brain backends are typed-chat first, so they need
+    /// no voice mode; the OpenAI backend still requires a non-off voice mode (its only channel is the socket).
+    /// </summary>
+    private bool CanConverse => UsesClaudeBrain || SelectedVoiceMode != "off";
 
     public string SelectedProvider
     {
@@ -329,6 +344,8 @@ public sealed class AgentPanelViewModel : ObservableObject
             }
             PersistConfig(c => c.Agent.Provider = value);
             OnPropertyChanged(nameof(IsClaudeCli));
+            OnPropertyChanged(nameof(IsHybrid));
+            OnPropertyChanged(nameof(UsesClaudeBrain));
             OnPropertyChanged(nameof(CanCancelTurn));
             OnPropertyChanged(nameof(ShowOpenAiKeyWarning));
             StartVoiceCommand.RaiseCanExecuteChanged();
@@ -480,7 +497,7 @@ public sealed class AgentPanelViewModel : ObservableObject
             PillState = AgentPillState.Connecting;
             var config = _configService.Load();
 
-            if (IsClaudeCli)
+            if (UsesClaudeBrain)
             {
                 // Full-agent (edit/command) capability needs explicit one-time consent. Until granted
                 // the backend runs read-only; declining proceeds read-only for this session.
@@ -504,7 +521,8 @@ public sealed class AgentPanelViewModel : ObservableObject
 
             var resolution = AgentConversationFactory.Create(
                 config, new SecretsService(), _currentTranscriptPath(),
-                tools: BuildTools(), toolHandler: SaveNote is null ? null : HandleToolCallAsync);
+                tools: BuildTools(), toolHandler: SaveNote is null ? null : HandleToolCallAsync,
+                notesFilePath: NotesFilePath?.Invoke());
             if (resolution.Session is null)
             {
                 StatusText = resolution.Notice ?? "Voice unavailable.";
@@ -522,10 +540,10 @@ public sealed class AgentPanelViewModel : ObservableObject
 
             await _voice.StartAsync();
 
-            if (IsClaudeCli)
+            if (UsesClaudeBrain)
             {
                 PushRecentWorkspace(WorkspaceFolder);
-                StatusText = $"Assistant connected (claude-cli · {WorkspaceFolder}).";
+                StatusText = $"Assistant connected ({SelectedProvider} · {WorkspaceFolder}).";
             }
             else
             {

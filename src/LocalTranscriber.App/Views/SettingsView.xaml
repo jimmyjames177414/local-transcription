@@ -201,11 +201,11 @@
                         <ComboBox Width="160" HorizontalAlignment="Left" Margin="0,0,0,4"
                                   Style="{StaticResource ComboBoxStyle}"
                                   ItemsSource="{Binding AgentPanel.Providers}" SelectedItem="{Binding AgentPanel.SelectedProvider}" />
-                        <TextBlock Text="openai = cloud realtime voice/text; claude-cli = local Claude Code CLI in a workspace you choose."
+                        <TextBlock Text="openai = cloud realtime voice/text; claude-cli = local Claude Code CLI in a workspace; hybrid = Claude does the thinking &amp; notes, OpenAI speaks the replies."
                                    FontSize="10" Foreground="{StaticResource Brush.Text.Hint}" Margin="0,0,0,12" TextWrapping="Wrap" />
 
-                        <!-- Claude CLI workspace picker (only for the claude-cli backend) -->
-                        <StackPanel Visibility="{Binding AgentPanel.IsClaudeCli, Converter={StaticResource BoolToVisibility}}">
+                        <!-- Claude CLI workspace picker (claude-cli + hybrid backends) -->
+                        <StackPanel Visibility="{Binding AgentPanel.UsesClaudeBrain, Converter={StaticResource BoolToVisibility}}">
                             <TextBlock Text="Workspace folder" Style="{StaticResource FieldLabel}" />
                             <Grid Margin="0,0,0,4">
                                 <Grid.ColumnDefinitions>

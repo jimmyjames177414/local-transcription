@@ -402,7 +402,7 @@
                               ItemsSource="{Binding AgentPanel.RecentWorkspaces}"
                               Text="{Binding AgentPanel.WorkspaceFolder, UpdateSourceTrigger=LostFocus}"
                               ToolTip="Claude CLI workspace — the folder the assistant runs in"
-                              Visibility="{Binding AgentPanel.IsClaudeCli, Converter={StaticResource BoolToVisibility}}" />
+                              Visibility="{Binding AgentPanel.UsesClaudeBrain, Converter={StaticResource BoolToVisibility}}" />
 
                     <!-- Status pill -->
                     <Border Grid.Column="3" CornerRadius="99" BorderThickness="1" Padding="9,3" VerticalAlignment="Center">
