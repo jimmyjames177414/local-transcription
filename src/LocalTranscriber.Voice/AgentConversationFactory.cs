@@ -20,12 +20,10 @@ public static class AgentConversationFactory
         Func<RealtimeToolCall, Task<string>>? toolHandler = null,
         string? notesFilePath = null)
     {
-        string provider = (config.Agent.Provider ?? "openai").Trim().ToLowerInvariant();
-
-        return provider switch
+        return AgentProviders.Parse(config.Agent.Provider) switch
         {
-            "claude-cli" => CreateClaudeCli(config, transcriptJsonlPath, notesFilePath),
-            "hybrid" => CreateHybrid(config, secrets, transcriptJsonlPath, notesFilePath),
+            AgentProvider.ClaudeCli => CreateClaudeCli(config, transcriptJsonlPath, notesFilePath),
+            AgentProvider.Hybrid => CreateHybrid(config, secrets, transcriptJsonlPath, notesFilePath),
             _ => RealtimeVoiceFactory.Create(config, secrets, transcriptJsonlPath, tools, toolHandler)
         };
     }

@@ -29,7 +29,7 @@ public sealed class AgentConfig
     /// (shell out to the local Claude Code CLI in a chosen workspace). Defaulting to "openai"
     /// preserves behaviour for existing configs.
     /// </summary>
-    public string Provider { get; set; } = "openai";
+    public string Provider { get; set; } = AgentProviders.OpenAI;
 
     public string ContextFolder { get; set; } = "context";
     public string AgentOutputFolder { get; set; } = Path.Combine("output", "agent");
