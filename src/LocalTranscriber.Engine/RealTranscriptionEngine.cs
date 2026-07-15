@@ -16,8 +16,6 @@ namespace LocalTranscriber.Engine;
 /// </summary>
 public sealed class RealTranscriptionEngine : ITranscriptionEngine, IAsyncDisposable
 {
-    private readonly Func<IAudioCaptureService> _micFactory;
-    private readonly Func<IAudioCaptureService> _systemFactory;
     private readonly ILocalTranscriptionService _transcription;
     private readonly ISpeakerDiarizationService? _diarization;
     private readonly ISpeakerEmbeddingService? _embedding;
@@ -29,6 +27,7 @@ public sealed class RealTranscriptionEngine : ITranscriptionEngine, IAsyncDispos
     private readonly MinutesExportConfig? _minutesExport;
     private readonly string? _notesFolder;
     private readonly SpeakerLabeler _speakerLabeler;
+    private readonly CaptureHost _captureHost;
 
     // Bounded live-path channels give backpressure a slow transcription stage otherwise lacks.
     // Audio windows carry large PCM buffers, so the queue drops the oldest window under sustained
@@ -50,8 +49,6 @@ public sealed class RealTranscriptionEngine : ITranscriptionEngine, IAsyncDispos
 
     private TranscriptionSessionOptions? _options;
     private ITranscriptWriter? _writer;
-    private IAudioCaptureService? _mic;
-    private IAudioCaptureService? _system;
     private Channel<AudioWindow>? _windowQueue;
     private Task? _processor;
     private CancellationTokenSource? _cts;
@@ -61,14 +58,10 @@ public sealed class RealTranscriptionEngine : ITranscriptionEngine, IAsyncDispos
     private string? _tempDir;
     private int _windowCounter;
     private string _lastEmittedText = "";
-    private long _lastMicChunkMs;
-    private long _lastSystemChunkMs;
-    private Task? _watchdog;
-    private readonly TimeSpan _captureStaleThreshold;
-    private readonly TimeSpan _watchdogPollInterval;
 
     private volatile bool _paused;
-    private TranscriptionSessionState _state = TranscriptionSessionState.NotStarted;
+    // volatile: read lock-free by the capture watchdog's isActive predicate (CaptureHost).
+    private volatile TranscriptionSessionState _state = TranscriptionSessionState.NotStarted;
     private DateTimeOffset? _startedAt;
     private DateTimeOffset? _lastEventAt;
     private long _eventCount;
@@ -90,8 +83,6 @@ public sealed class RealTranscriptionEngine : ITranscriptionEngine, IAsyncDispos
         TimeSpan? captureStaleThreshold = null)
     {
         _transcription = transcription;
-        _micFactory = micFactory ?? (() => new MicrophoneCaptureService());
-        _systemFactory = systemFactory ?? (() => new SystemLoopbackCaptureService());
         _diarization = diarization;
         _embedding = embedding;
         _recognition = recognition;
@@ -102,8 +93,14 @@ public sealed class RealTranscriptionEngine : ITranscriptionEngine, IAsyncDispos
         _minutesExport = minutesExport;
         _notesFolder = notesFolder;
         _speakerLabeler = new SpeakerLabeler(_diarization, _embedding, _recognition, AddWarning);
-        _captureStaleThreshold = captureStaleThreshold ?? TimeSpan.FromSeconds(30);
-        _watchdogPollInterval  = TimeSpan.FromSeconds(Math.Max(1, _captureStaleThreshold.TotalSeconds / 3));
+        _captureHost = new CaptureHost(
+            micFactory ?? (() => new MicrophoneCaptureService()),
+            systemFactory ?? (() => new SystemLoopbackCaptureService()),
+            AddWarning,
+            () => _state == TranscriptionSessionState.Recording,
+            captureStaleThreshold ?? TimeSpan.FromSeconds(30));
+        _captureHost.MicChunk += chunk => EnqueueWindow(_micBuffer?.Add(chunk));
+        _captureHost.SystemChunk += chunk => EnqueueWindow(_systemBuffer?.Add(chunk));
     }
 
     public async Task StartAsync(TranscriptionSessionOptions options, CancellationToken cancellationToken = default)
@@ -148,8 +145,6 @@ public sealed class RealTranscriptionEngine : ITranscriptionEngine, IAsyncDispos
             _windowQueue = Channel.CreateBounded<AudioWindow>(
                 new BoundedChannelOptions(MaxQueuedAudioWindows) { FullMode = BoundedChannelFullMode.DropOldest });
             _cts = new CancellationTokenSource();
-            Interlocked.Exchange(ref _lastMicChunkMs, Environment.TickCount64);
-            Interlocked.Exchange(ref _lastSystemChunkMs, Environment.TickCount64);
             _startedAt = DateTimeOffset.Now;
 
             if (_sessionStore is not null)
@@ -161,49 +156,11 @@ public sealed class RealTranscriptionEngine : ITranscriptionEngine, IAsyncDispos
 
             try
             {
-                var captureOptions = new AudioCaptureOptions();
-
-                if (options.EnableMicrophone)
-                {
-                    var mic = _micFactory();
-                    if (mic.IsAvailable(captureOptions))
-                    {
-                        _mic = mic;
-                        _mic.ChunkAvailable += OnMicChunk;
-                        await _mic.StartAsync(captureOptions, cancellationToken).ConfigureAwait(false);
-                    }
-                    else
-                    {
-                        await mic.DisposeAsync().ConfigureAwait(false);
-                        AddWarning("Microphone unavailable (no default recording device); skipping mic capture.");
-                    }
-                }
-
-                if (options.EnableSystemAudio)
-                {
-                    var system = _systemFactory();
-                    if (system.IsAvailable(captureOptions))
-                    {
-                        _system = system;
-                        _system.ChunkAvailable += OnSystemChunk;
-                        await _system.StartAsync(captureOptions, cancellationToken).ConfigureAwait(false);
-                    }
-                    else
-                    {
-                        await system.DisposeAsync().ConfigureAwait(false);
-                        AddWarning("System audio unavailable (no default playback device); skipping system capture.");
-                    }
-                }
-
-                if (_mic is null && _system is null)
-                {
-                    throw new InvalidOperationException(
-                        "No audio devices available. Connect a microphone or a playback device and try again.");
-                }
+                await _captureHost.StartAsync(options.EnableMicrophone, options.EnableSystemAudio, cancellationToken).ConfigureAwait(false);
             }
             catch (Exception ex)
             {
-                await CleanupCaptureAsync().ConfigureAwait(false);
+                await _captureHost.StopAsync().ConfigureAwait(false);
                 _state = TranscriptionSessionState.Faulted;
                 _error = $"Audio capture failed to start: {ex.Message}";
                 AppLog.Error("engine", _error);
@@ -211,7 +168,6 @@ public sealed class RealTranscriptionEngine : ITranscriptionEngine, IAsyncDispos
             }
 
             _processor = Task.Run(() => ProcessWindowsAsync(_cts.Token), CancellationToken.None);
-            _watchdog = Task.Run(() => WatchdogAsync(_cts.Token), CancellationToken.None);
             _state = TranscriptionSessionState.Recording;
             AppLog.Info("engine", $"Session {options.SessionId} started (mic: {options.EnableMicrophone}, system: {options.EnableSystemAudio}, whisper: {options.WhisperModelPath}, chunk: {options.ChunkSeconds}s)");
         }
@@ -219,18 +175,6 @@ public sealed class RealTranscriptionEngine : ITranscriptionEngine, IAsyncDispos
         {
             _control.Release();
         }
-    }
-
-    private void OnMicChunk(object? sender, AudioChunk chunk)
-    {
-        Interlocked.Exchange(ref _lastMicChunkMs, Environment.TickCount64);
-        EnqueueWindow(_micBuffer?.Add(chunk));
-    }
-
-    private void OnSystemChunk(object? sender, AudioChunk chunk)
-    {
-        Interlocked.Exchange(ref _lastSystemChunkMs, Environment.TickCount64);
-        EnqueueWindow(_systemBuffer?.Add(chunk));
     }
 
     private void EnqueueWindow(AudioWindow? window)
@@ -424,109 +368,6 @@ public sealed class RealTranscriptionEngine : ITranscriptionEngine, IAsyncDispos
         return path;
     }
 
-    private async Task WatchdogAsync(CancellationToken cancellationToken)
-    {
-        try
-        {
-            await Task.Delay(_captureStaleThreshold, cancellationToken).ConfigureAwait(false);
-            while (!cancellationToken.IsCancellationRequested)
-            {
-                await Task.Delay(_watchdogPollInterval, cancellationToken).ConfigureAwait(false);
-                long now = Environment.TickCount64;
-                long staleMs = (long)_captureStaleThreshold.TotalMilliseconds;
-                if (_mic is not null && now - Interlocked.Read(ref _lastMicChunkMs) > staleMs)
-                    await TryRestartCaptureAsync(AudioSourceType.Microphone, cancellationToken).ConfigureAwait(false);
-                if (_system is not null && now - Interlocked.Read(ref _lastSystemChunkMs) > staleMs)
-                    await TryRestartCaptureAsync(AudioSourceType.SystemAudio, cancellationToken).ConfigureAwait(false);
-            }
-        }
-        catch (OperationCanceledException)
-        {
-        }
-    }
-
-    private async Task TryRestartCaptureAsync(AudioSourceType source, CancellationToken cancellationToken)
-    {
-        AddWarning($"{source} capture stalled — no audio for {(int)_captureStaleThreshold.TotalSeconds}s; reconnecting.");
-
-        // WaitAsync throws OCE if cancelled before acquired (semaphore NOT held in that case)
-        bool acquired = await _control.WaitAsync(TimeSpan.FromSeconds(5), cancellationToken).ConfigureAwait(false);
-        if (!acquired)
-            return;
-        try
-        {
-            if (_state != TranscriptionSessionState.Recording)
-                return;
-
-            var captureOptions = new AudioCaptureOptions();
-
-            if (source == AudioSourceType.Microphone)
-            {
-                if (_mic is not null)
-                {
-                    _mic.ChunkAvailable -= OnMicChunk;
-                    await _mic.DisposeAsync().ConfigureAwait(false);
-                    _mic = null;
-                }
-                Interlocked.Exchange(ref _lastMicChunkMs, Environment.TickCount64);
-                try
-                {
-                    var capture = _micFactory();
-                    if (capture.IsAvailable(captureOptions))
-                    {
-                        await capture.StartAsync(captureOptions, cancellationToken).ConfigureAwait(false);
-                        capture.ChunkAvailable += OnMicChunk;
-                        _mic = capture;
-                        AppLog.Info("engine", "Microphone capture reconnected.");
-                    }
-                    else
-                    {
-                        await capture.DisposeAsync().ConfigureAwait(false);
-                        AddWarning("Microphone unavailable after reconnect; mic capture suspended.");
-                    }
-                }
-                catch (Exception ex)
-                {
-                    AddWarning($"Microphone reconnect failed: {ex.Message}");
-                }
-            }
-            else
-            {
-                if (_system is not null)
-                {
-                    _system.ChunkAvailable -= OnSystemChunk;
-                    await _system.DisposeAsync().ConfigureAwait(false);
-                    _system = null;
-                }
-                Interlocked.Exchange(ref _lastSystemChunkMs, Environment.TickCount64);
-                try
-                {
-                    var capture = _systemFactory();
-                    if (capture.IsAvailable(captureOptions))
-                    {
-                        await capture.StartAsync(captureOptions, cancellationToken).ConfigureAwait(false);
-                        capture.ChunkAvailable += OnSystemChunk;
-                        _system = capture;
-                        AppLog.Info("engine", "System audio capture reconnected.");
-                    }
-                    else
-                    {
-                        await capture.DisposeAsync().ConfigureAwait(false);
-                        AddWarning("System audio unavailable after reconnect; system capture suspended.");
-                    }
-                }
-                catch (Exception ex)
-                {
-                    AddWarning($"System audio reconnect failed: {ex.Message}");
-                }
-            }
-        }
-        finally
-        {
-            _control.Release();
-        }
-    }
-
     private void AddWarning(string warning)
     {
         AppLog.Warn("engine", warning);
@@ -553,7 +394,7 @@ public sealed class RealTranscriptionEngine : ITranscriptionEngine, IAsyncDispos
 
             _state = TranscriptionSessionState.Stopping;
 
-            await CleanupCaptureAsync().ConfigureAwait(false);
+            await _captureHost.StopAsync().ConfigureAwait(false);
 
             // Process any remaining buffered audio, then drain the queue.
             EnqueueFinalWindows();
@@ -575,7 +416,6 @@ public sealed class RealTranscriptionEngine : ITranscriptionEngine, IAsyncDispos
             _cts?.Dispose();
             _cts = null;
             _processor = null;
-            _watchdog = null;
 
             if (_writer is not null)
             {
@@ -668,23 +508,6 @@ public sealed class RealTranscriptionEngine : ITranscriptionEngine, IAsyncDispos
         if (systemTail is not null)
         {
             _windowQueue?.Writer.TryWrite(systemTail);
-        }
-    }
-
-    private async Task CleanupCaptureAsync()
-    {
-        if (_mic is not null)
-        {
-            _mic.ChunkAvailable -= OnMicChunk;
-            await _mic.DisposeAsync().ConfigureAwait(false);
-            _mic = null;
-        }
-
-        if (_system is not null)
-        {
-            _system.ChunkAvailable -= OnSystemChunk;
-            await _system.DisposeAsync().ConfigureAwait(false);
-            _system = null;
         }
     }
 
@@ -814,6 +637,7 @@ public sealed class RealTranscriptionEngine : ITranscriptionEngine, IAsyncDispos
     public async ValueTask DisposeAsync()
     {
         await StopAsync().ConfigureAwait(false);
+        await _captureHost.DisposeAsync().ConfigureAwait(false);
         _events.Writer.TryComplete();
         _control.Dispose();
     }
