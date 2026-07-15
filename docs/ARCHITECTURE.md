@@ -23,14 +23,21 @@ MCP      ─────┘
 | `LocalTranscriber.App` | WPF UI. |
 | `LocalTranscriber.Cli` | Command-line interface. |
 | `LocalTranscriber.Mcp` | MCP stdio server for Claude integration. |
+| `LocalTranscriber.Agent` | Optional live-meeting sidecar primitives: incremental `.jsonl` tailer, rolling transcript window, OpenAI realtime transport. |
+| `LocalTranscriber.Context` | Context packs / retrieval (markdown packs, keyword scoring, budget composer) that ground the assistant. |
+| `LocalTranscriber.Voice` | Real-time voice conversation providers (OpenAI realtime / Claude CLI / hybrid) behind `IRealtimeVoiceConversation`. Opt-in, off by default. |
 
 ## Dependency direction
 
 ```text
 App / Cli / Mcp -> Engine -> Audio / AI / Speakers / Storage -> Shared
+
+Optional sidecar (opt-in, off by default):
+App / Cli / Mcp -> Voice -> Agent / Context / Audio / AI / Storage -> Shared
 ```
 
-Lower layers never reference upper layers.
+Lower layers never reference upper layers. The `Voice`/`Agent`/`Context` sidecar is optional and
+disabled by default; the offline transcription pipeline never depends on it.
 
 ## Engine
 

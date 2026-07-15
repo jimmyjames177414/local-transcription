@@ -21,7 +21,8 @@ claude mcp add local-transcriber -- C:\path\to\release\LocalTranscriber\LocalTra
 | Tool | Purpose |
 |---|---|
 | `get_status` | State, session id, output paths, event count |
-| `start_fake_transcription` | Start a fake session (real audio arrives in Phase 12) |
+| `start_fake_transcription` | Start a fake session (synthetic lines, no audio) |
+| `start_transcription` | Start a real local session (mic/system audio + whisper + diarization) |
 | `stop_transcription` / `pause_transcription` / `resume_transcription` | Session control |
 | `tail_transcript` | Last N lines of a transcript (transcript folder only) |
 | `read_current_transcript` | Full current/latest transcript |
@@ -29,6 +30,19 @@ claude mcp add local-transcriber -- C:\path\to\release\LocalTranscriber\LocalTra
 | `list_known_speakers` | Known speakers from SQLite |
 | `rename_speaker` / `forget_speaker` | Speaker management |
 | `set_output_folder` | Change transcript output folder |
+
+### Session-control ownership (single owner)
+
+A live session is controlled through one named pipe (`localtranscriber-control`), and only one
+process owns it at a time. The control tools (`get_status` / `stop` / `pause` / `resume`) resolve
+the target the same way the CLI does:
+
+- If the MCP process started the session itself (`start_transcription` / `start_fake_transcription`),
+  it controls that in-process engine directly and hosts the pipe so the CLI/app can reach it too —
+  but only when no other process already owns the pipe.
+- Otherwise the control tools route over the pipe to whichever process (the WPF app or a CLI
+  `start`) owns the live session. This is what lets an MCP `stop` end a session running in the app.
+- If nothing is listening, the tools report the idle in-process engine.
 
 ## Agent tools
 

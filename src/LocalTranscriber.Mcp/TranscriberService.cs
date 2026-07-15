@@ -1,4 +1,5 @@
 using LocalTranscriber.Engine;
+using LocalTranscriber.Engine.Ipc;
 using LocalTranscriber.Shared;
 using LocalTranscriber.Speakers;
 using LocalTranscriber.Storage;
@@ -17,6 +18,11 @@ public sealed class TranscriberService
     private ITranscriptionEngine _current;
     private RealTranscriptionEngine? _realEngine;
     private readonly FakeTranscriptionEngine _fakeEngine;
+
+    // Set while THIS process owns a live session it started in-process. When false, control
+    // verbs (status/stop/pause/resume) route to whichever process (app or CLI) owns the pipe.
+    private bool _ownsSession;
+    private EngineIpcServer? _ipcServer;
 
     public TranscriberService(ConfigService configService)
     {
@@ -73,6 +79,8 @@ public sealed class TranscriberService
         _current = _fakeEngine;
         await Engine.StartAsync(options, cancellationToken);
         CurrentOptions = options;
+        _ownsSession = true;
+        await TryHostIpcAsync(_current, cancellationToken).ConfigureAwait(false);
         return options;
     }
 
@@ -85,7 +93,101 @@ public sealed class TranscriberService
         _current = _realEngine;
         await _current.StartAsync(options, cancellationToken);
         CurrentOptions = options;
+        _ownsSession = true;
+        await TryHostIpcAsync(_current, cancellationToken).ConfigureAwait(false);
         return options;
+    }
+
+    /// <summary>
+    /// Returns the running session status. When this process owns a session, reports its own
+    /// engine; otherwise queries whichever process (app or CLI) owns the control pipe, falling
+    /// back to the idle in-process engine when nothing is listening.
+    /// </summary>
+    public async Task<TranscriptionSessionStatus> GetStatusAsync(CancellationToken cancellationToken = default)
+    {
+        if (_ownsSession)
+        {
+            return await _current.GetStatusAsync(cancellationToken).ConfigureAwait(false);
+        }
+
+        var remote = await EngineIpcClient.TrySendAsync("status", cancellationToken: cancellationToken).ConfigureAwait(false);
+        return remote?.Status ?? await _current.GetStatusAsync(cancellationToken).ConfigureAwait(false);
+    }
+
+    /// <summary>Stops the active session (in-process if this process owns it, else via the pipe).</summary>
+    public Task<string> StopAsync(CancellationToken cancellationToken = default)
+        => ControlAsync("stop", "Stopped.",
+            async ct =>
+            {
+                await _current.StopAsync(ct).ConfigureAwait(false);
+                _ownsSession = false;
+                await DisposeIpcServerAsync().ConfigureAwait(false);
+            },
+            cancellationToken);
+
+    /// <summary>Pauses the active session (in-process if this process owns it, else via the pipe).</summary>
+    public Task<string> PauseAsync(CancellationToken cancellationToken = default)
+        => ControlAsync("pause", "Paused.", ct => _current.PauseAsync(ct), cancellationToken);
+
+    /// <summary>Resumes the active session (in-process if this process owns it, else via the pipe).</summary>
+    public Task<string> ResumeAsync(CancellationToken cancellationToken = default)
+        => ControlAsync("resume", "Resumed.", ct => _current.ResumeAsync(ct), cancellationToken);
+
+    private async Task<string> ControlAsync(
+        string ipcCommand, string okMessage, Func<CancellationToken, Task> inProcess, CancellationToken cancellationToken)
+    {
+        if (_ownsSession)
+        {
+            await inProcess(cancellationToken).ConfigureAwait(false);
+            return okMessage;
+        }
+
+        var remote = await EngineIpcClient.TrySendAsync(ipcCommand, cancellationToken: cancellationToken).ConfigureAwait(false);
+        if (remote is not null)
+        {
+            return remote.Message ?? (remote.Ok ? okMessage : "Command failed.");
+        }
+
+        // Nothing owns the pipe — operate on the idle in-process engine so behavior is defined.
+        await inProcess(cancellationToken).ConfigureAwait(false);
+        return okMessage;
+    }
+
+    /// <summary>
+    /// Hosts the control pipe for a session started here, so the CLI/app can control it — but only
+    /// when no other process already owns the pipe (a single owner is required). Best-effort.
+    /// </summary>
+    private async Task TryHostIpcAsync(ITranscriptionEngine engine, CancellationToken cancellationToken)
+    {
+        if (_ipcServer is not null)
+        {
+            return;
+        }
+
+        var existing = await EngineIpcClient.TrySendAsync("status", cancellationToken: cancellationToken).ConfigureAwait(false);
+        if (existing is not null)
+        {
+            return; // another process (app/CLI) already owns the control pipe.
+        }
+
+        try
+        {
+            _ipcServer = new EngineIpcServer(engine);
+            _ipcServer.Start();
+        }
+        catch
+        {
+            _ipcServer = null; // hosting is optional; never fail a start over it.
+        }
+    }
+
+    private async Task DisposeIpcServerAsync()
+    {
+        if (_ipcServer is not null)
+        {
+            await _ipcServer.DisposeAsync().ConfigureAwait(false);
+            _ipcServer = null;
+        }
     }
 
     /// <summary>

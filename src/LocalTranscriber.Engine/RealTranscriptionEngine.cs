@@ -28,9 +28,19 @@ public sealed class RealTranscriptionEngine : ITranscriptionEngine, IAsyncDispos
     private readonly ISpeakerAliasStore? _aliasStore;
     private readonly MinutesExportConfig? _minutesExport;
     private readonly string? _notesFolder;
+    private readonly SpeakerLabeler _speakerLabeler;
+
+    // Bounded live-path channels give backpressure a slow transcription stage otherwise lacks.
+    // Audio windows carry large PCM buffers, so the queue drops the oldest window under sustained
+    // overload (shedding audio, matching the realtime voice path) rather than growing without limit.
+    // The event channel holds small already-persisted events; its cap is a safety net for a stalled
+    // UI consumer — the transcript on disk/SQLite remains the source of truth.
+    private const int MaxQueuedAudioWindows = 32;
+    private const int MaxBufferedEvents = 2048;
 
     private readonly SemaphoreSlim _control = new(1, 1);
-    private readonly Channel<TranscriptEvent> _events = Channel.CreateUnbounded<TranscriptEvent>();
+    private readonly Channel<TranscriptEvent> _events = Channel.CreateBounded<TranscriptEvent>(
+        new BoundedChannelOptions(MaxBufferedEvents) { FullMode = BoundedChannelFullMode.DropOldest });
     private readonly List<string> _warnings = new();
 
     // TEMP DIAGNOSTIC: set LT_TRANSCRIBE_DEBUG=1 to log the peak level of every window
@@ -91,6 +101,7 @@ public sealed class RealTranscriptionEngine : ITranscriptionEngine, IAsyncDispos
         _aliasStore = aliasStore;
         _minutesExport = minutesExport;
         _notesFolder = notesFolder;
+        _speakerLabeler = new SpeakerLabeler(_diarization, _embedding, _recognition, AddWarning);
         _captureStaleThreshold = captureStaleThreshold ?? TimeSpan.FromSeconds(30);
         _watchdogPollInterval  = TimeSpan.FromSeconds(Math.Max(1, _captureStaleThreshold.TotalSeconds / 3));
     }
@@ -134,7 +145,8 @@ public sealed class RealTranscriptionEngine : ITranscriptionEngine, IAsyncDispos
 
             _micBuffer = new AudioWindowBuffer(options.ChunkSeconds, options.OverlapMs);
             _systemBuffer = new AudioWindowBuffer(options.ChunkSeconds, options.OverlapMs);
-            _windowQueue = Channel.CreateUnbounded<AudioWindow>();
+            _windowQueue = Channel.CreateBounded<AudioWindow>(
+                new BoundedChannelOptions(MaxQueuedAudioWindows) { FullMode = BoundedChannelFullMode.DropOldest });
             _cts = new CancellationTokenSource();
             Interlocked.Exchange(ref _lastMicChunkMs, Environment.TickCount64);
             Interlocked.Exchange(ref _lastSystemChunkMs, Environment.TickCount64);
@@ -320,165 +332,20 @@ public sealed class RealTranscriptionEngine : ITranscriptionEngine, IAsyncDispos
 
     private async Task ProcessSystemWindowAsync(AudioWindow window, string wavPath, CancellationToken cancellationToken)
     {
-        IReadOnlyList<SpeakerSegment> diarized = Array.Empty<SpeakerSegment>();
-        if (_diarization is not null && _options!.SpeakerModelDir is not null)
-        {
-            try
-            {
-                diarized = await _diarization.DiarizeAsync(new SpeakerDiarizationRequest
-                {
-                    AudioPath = wavPath,
-                    Models = new SpeakerModelConfig { ModelDir = _options.SpeakerModelDir }
-                }, cancellationToken).ConfigureAwait(false);
-            }
-            catch (Exception ex)
-            {
-                AddWarning($"Diarization failed, falling back to single speaker: {ex.Message}");
-            }
-        }
-
         var result = await TranscribeAsync(wavPath, cancellationToken).ConfigureAwait(false);
         if (result.Segments.Count == 0)
         {
             return;
         }
 
-        // Resolve each diarized cluster to a speaker label once per window.
-        // B3: average embeddings from up to 3 qualifying segments per cluster for robustness.
-        // B4: clusters whose segments are all too short to embed are excluded from the map;
-        //     their whisper segments fall through to defaultLabel instead of inheriting a
-        //     stale last-created speaker label.
-        var clusterLabels = new Dictionary<string, SpeakerLabel>();
-        foreach (var cluster in diarized.GroupBy(s => s.TemporarySpeakerId))
-        {
-            var embedding = await ExtractAveragedEmbeddingAsync(wavPath, cluster, cancellationToken).ConfigureAwait(false);
-            if (embedding is not null)
-            {
-                clusterLabels[cluster.Key] = await ResolveSpeakerFromEmbeddingAsync(embedding, cancellationToken).ConfigureAwait(false);
-            }
-        }
+        // Diarization + embedding + speaker resolution + segment assignment live in SpeakerLabeler.
+        var labeled = await _speakerLabeler.LabelSegmentsAsync(
+            wavPath, result.Segments, _registry!, _options!.SpeakerModelDir, cancellationToken).ConfigureAwait(false);
 
-        var defaultLabel = clusterLabels.Count switch
+        foreach (var (segment, speaker) in labeled)
         {
-            0 => new SpeakerLabel("speaker_unknown", "Speaker 1", IsKnown: false),
-            1 => clusterLabels.Values.First(),
-            _ => new SpeakerLabel("speaker_unknown", "Unknown", IsKnown: false)
-        };
-
-        foreach (var segment in result.Segments)
-        {
-            var speaker = AssignSpeaker(segment, diarized, clusterLabels) ?? defaultLabel;
             await EmitAsync(window, segment, speaker, AudioSourceType.SystemAudio, cancellationToken).ConfigureAwait(false);
         }
-    }
-
-    /// <summary>Assigns the diarized cluster with the largest time overlap with the whisper segment.</summary>
-    private static SpeakerLabel? AssignSpeaker(
-        TranscribedSegment segment,
-        IReadOnlyList<SpeakerSegment> diarized,
-        IReadOnlyDictionary<string, SpeakerLabel> clusterLabels)
-    {
-        string? bestCluster = null;
-        long bestOverlap = 0;
-        foreach (var d in diarized)
-        {
-            long overlap = Math.Min(segment.EndMs, d.EndMs) - Math.Max(segment.StartMs, d.StartMs);
-            if (overlap > bestOverlap)
-            {
-                bestOverlap = overlap;
-                bestCluster = d.TemporarySpeakerId;
-            }
-        }
-
-        return bestCluster is not null && clusterLabels.TryGetValue(bestCluster, out var label) ? label : null;
-    }
-
-    /// <summary>
-    /// Extracts embeddings from up to 3 qualifying segments (≥ 700 ms, longest-first) and
-    /// returns their average, or null if none qualify. Capped to limit per-window CPU cost.
-    /// </summary>
-    private async Task<SpeakerEmbedding?> ExtractAveragedEmbeddingAsync(
-        string wavPath, IEnumerable<SpeakerSegment> segments, CancellationToken ct)
-    {
-        if (_embedding is null || _options?.SpeakerModelDir is null)
-        {
-            return null;
-        }
-
-        var qualifying = segments
-            .Where(s => s.EndMs - s.StartMs >= 700)
-            .OrderByDescending(s => s.EndMs - s.StartMs)
-            .Take(3)
-            .ToList();
-
-        if (qualifying.Count == 0)
-        {
-            return null;
-        }
-
-        var embeddings = new List<SpeakerEmbedding>(qualifying.Count);
-        foreach (var seg in qualifying)
-        {
-            try
-            {
-                var emb = await _embedding.ExtractEmbeddingAsync(new SpeakerEmbeddingRequest
-                {
-                    AudioPath = wavPath,
-                    Models = new SpeakerModelConfig { ModelDir = _options.SpeakerModelDir },
-                    StartMs = seg.StartMs,
-                    EndMs = seg.EndMs
-                }, ct).ConfigureAwait(false);
-                embeddings.Add(emb);
-            }
-            catch (Exception ex)
-            {
-                AddWarning($"Speaker embedding failed: {ex.Message}");
-            }
-        }
-
-        if (embeddings.Count == 0)
-        {
-            return null;
-        }
-
-        if (embeddings.Count == 1)
-        {
-            return embeddings[0];
-        }
-
-        int dim = embeddings[0].Dimensions;
-        var sum = new float[dim];
-        foreach (var e in embeddings)
-        {
-            if (e.Dimensions != dim) continue;
-            for (int i = 0; i < dim; i++) sum[i] += e.Vector[i];
-        }
-        var avg = new float[dim];
-        for (int i = 0; i < dim; i++) avg[i] = sum[i] / embeddings.Count;
-        return new SpeakerEmbedding(avg, dim, embeddings[0].ModelName);
-    }
-
-    private async Task<SpeakerLabel> ResolveSpeakerFromEmbeddingAsync(SpeakerEmbedding embedding, CancellationToken ct)
-    {
-        if (_recognition is not null)
-        {
-            try
-            {
-                var match = await _recognition.MatchAsync(embedding, ct).ConfigureAwait(false);
-                if (match is not null)
-                {
-                    // Confidence below the writer's threshold renders as "possibly Name".
-                    return new SpeakerLabel(match.SpeakerId, match.DisplayName, IsKnown: true, Confidence: match.Similarity);
-                }
-            }
-            catch (Exception ex)
-            {
-                AddWarning($"Speaker recognition failed: {ex.Message}");
-            }
-        }
-
-        string label = _registry?.ResolveLabel(embedding) ?? "Speaker 1";
-        return new SpeakerLabel(SessionSpeakerRegistry.LabelToSessionSpeakerId(label), label, IsKnown: false);
     }
 
     private async Task<TranscriptionResult> TranscribeAsync(string wavPath, CancellationToken cancellationToken)

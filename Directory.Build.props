@@ -1,0 +1,25 @@
+<Project>
+
+  <!--
+    Shared build settings inherited by every project in the solution. Each csproj still
+    declares its own TargetFramework; the settings below reinforce the existing per-project
+    Nullable/ImplicitUsings and add solution-wide Roslyn analyzers.
+  -->
+  <PropertyGroup>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+
+    <!-- Roslyn analyzers on, at the latest recommended ruleset. -->
+    <EnableNETAnalyzers>true</EnableNETAnalyzers>
+    <AnalysisLevel>latest-recommended</AnalysisLevel>
+    <EnforceCodeStyleInBuild>true</EnforceCodeStyleInBuild>
+
+    <!--
+      TODO: flip to true once CI is green and the analyzer/nullable warnings it
+      surfaces have been triaged. Left off deliberately so enabling analyzers
+      does not break the build before those warnings are visible in CI.
+    -->
+    <TreatWarningsAsErrors>false</TreatWarningsAsErrors>
+  </PropertyGroup>
+
+</Project>

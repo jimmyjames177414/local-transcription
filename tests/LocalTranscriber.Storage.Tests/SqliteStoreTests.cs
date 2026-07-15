@@ -242,14 +242,16 @@ public class SqliteStoreTests : IDisposable
         var joe = await speakers.CreateAsync("Joe");
         await aliases.UpsertAsync("s1", "session_speaker_1", joe.Id);
 
-        var resolver = new SqliteSpeakerNameResolver(aliases, speakers, TimeSpan.FromMilliseconds(50));
+        // TTL must comfortably exceed the intervening RenameAsync DB write, or the cache can expire
+        // early on a slow CI runner and the "still cached" assertion below flakes (returns "Joseph").
+        var resolver = new SqliteSpeakerNameResolver(aliases, speakers, TimeSpan.FromMilliseconds(500));
         Assert.Equal("Joe", await resolver.ResolveDisplayNameAsync("s1", "session_speaker_1"));
 
         await speakers.RenameAsync("Joe", "Joseph");
         // Still cached as the old name inside the TTL window.
         Assert.Equal("Joe", await resolver.ResolveDisplayNameAsync("s1", "session_speaker_1"));
 
-        await Task.Delay(80);
+        await Task.Delay(700); // > TTL, so the cache expires and the new name is resolved.
         Assert.Equal("Joseph", await resolver.ResolveDisplayNameAsync("s1", "session_speaker_1"));
     }
 
