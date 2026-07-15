@@ -27,7 +27,7 @@ public sealed class LocalTranscriberTools
     public async Task<string> GetStatus()
     {
         _logger.Log("get_status");
-        var status = await _service.Engine.GetStatusAsync();
+        var status = await _service.GetStatusAsync();
         return JsonSerializer.Serialize(status, Pretty);
     }
 
@@ -58,24 +58,21 @@ public sealed class LocalTranscriberTools
     public async Task<string> StopTranscription()
     {
         _logger.Log("stop_transcription");
-        await _service.Engine.StopAsync();
-        return "Stopped.";
+        return await _service.StopAsync();
     }
 
     [McpServerTool(Name = "pause_transcription"), Description("Pause the current transcription session.")]
     public async Task<string> PauseTranscription()
     {
         _logger.Log("pause_transcription");
-        await _service.Engine.PauseAsync();
-        return "Paused.";
+        return await _service.PauseAsync();
     }
 
     [McpServerTool(Name = "resume_transcription"), Description("Resume a paused transcription session.")]
     public async Task<string> ResumeTranscription()
     {
         _logger.Log("resume_transcription");
-        await _service.Engine.ResumeAsync();
-        return "Resumed.";
+        return await _service.ResumeAsync();
     }
 
     [McpServerTool(Name = "tail_transcript"), Description("Read the last N lines of a transcript. Only files inside the configured transcript folder are allowed.")]

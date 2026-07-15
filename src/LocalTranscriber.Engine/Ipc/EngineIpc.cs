@@ -58,7 +58,11 @@ public sealed class EngineIpcServer : IAsyncDisposable
             }
             catch (IOException)
             {
-                // client vanished mid-request; keep listening
+                // Client vanished mid-request, or the pipe name is already owned by another host
+                // (maxNumberOfServerInstances = 1). Back off so a contended name can't spin the CPU,
+                // then keep listening.
+                try { await Task.Delay(500, cancellationToken).ConfigureAwait(false); }
+                catch (OperationCanceledException) { break; }
             }
         }
     }
