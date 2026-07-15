@@ -1,6 +1,5 @@
 using System.Text;
 using System.Text.Json;
-using System.Threading.Channels;
 using LocalTranscriber.Agent;
 using LocalTranscriber.Agent.OpenAI;
 using LocalTranscriber.AI;
@@ -47,11 +46,7 @@ public sealed class RealtimeVoiceSession : IRealtimeVoiceConversation
     private Task? _groundingLoop;
     private Task? _tailLoop;
     private IPushToTalkRecorder? _recorder;
-    private IAgentMicStream? _micStream;
-    private Channel<byte[]>? _micChannel;
-    private Task? _micPump;
-    private int _micFramesSent;
-    private int _micBytesSent;
+    private MicStreamPump? _micStreamPump;
     private string? _currentItemId;
     private RealtimeVoiceState _state = RealtimeVoiceState.Idle;
 
@@ -296,8 +291,7 @@ public sealed class RealtimeVoiceSession : IRealtimeVoiceConversation
         if (_options.Mode == RealtimeVoiceMode.PushToTalk)
         {
             // Read and reset both counters before stopping so we know if enough audio was sent.
-            int framesSent = Interlocked.Exchange(ref _micFramesSent, 0);
-            int bytesSent  = Interlocked.Exchange(ref _micBytesSent, 0);
+            var (framesSent, bytesSent) = _micStreamPump?.TakeCounters() ?? (0, 0);
             await StopMicStreamingAsync().ConfigureAwait(false);
 
             // 100ms at 24 kHz PCM16 mono = 4800 bytes. The server rejects anything smaller.
@@ -375,72 +369,28 @@ public sealed class RealtimeVoiceSession : IRealtimeVoiceConversation
     }
 
     // === Microphone streaming (pushToTalk + continuous) ===
-    // WASAPI callbacks hand 24kHz PCM16 frames to a bounded channel; a pump drains it so the
-    // capture thread never blocks on the socket. A single send-lock serializes all writes.
+    // Delegated to MicStreamPump: a bounded channel + pump so the capture thread never blocks on the
+    // socket. The pump sends each frame through SendAsync, which serializes writes on the send-lock.
     private async Task StartMicStreamingAsync(CancellationToken ct)
     {
-        if (_micStream is not null)
+        if (_micStreamPump is not null)
         {
             return;
         }
 
-        _micChannel = Channel.CreateBounded<byte[]>(new BoundedChannelOptions(64)
-        {
-            FullMode = BoundedChannelFullMode.DropOldest,
-            SingleReader = true
-        });
-        _micStream = _micStreamFactory();
-        _micStream.FrameAvailable += OnMicFrame;
-        _micPump = Task.Run(() => MicSendPumpAsync(ct), CancellationToken.None);
-        await _micStream.StartAsync(ct).ConfigureAwait(false);
-    }
-
-    private void OnMicFrame(object? sender, byte[] frame)
-    {
-        if (_micChannel?.Writer.TryWrite(frame) == true)
-        {
-            Interlocked.Increment(ref _micFramesSent);
-            Interlocked.Add(ref _micBytesSent, frame.Length);
-        }
-    }
-
-    private async Task MicSendPumpAsync(CancellationToken ct)
-    {
-        try
-        {
-            await foreach (var frame in _micChannel!.Reader.ReadAllAsync(ct).ConfigureAwait(false))
-            {
-                await SendAsync(new { type = "input_audio_buffer.append", audio = Convert.ToBase64String(frame) }, ct).ConfigureAwait(false);
-            }
-        }
-        catch (OperationCanceledException)
-        {
-        }
-        catch (Exception ex)
-        {
-            AppLog.Warn("voice", $"Mic send pump ended: {ex.Message}");
-        }
+        _micStreamPump = new MicStreamPump(
+            _micStreamFactory,
+            (frame, c) => SendAsync(new { type = "input_audio_buffer.append", audio = Convert.ToBase64String(frame) }, c));
+        await _micStreamPump.StartAsync(ct).ConfigureAwait(false);
     }
 
     private async Task StopMicStreamingAsync()
     {
-        if (_micStream is not null)
+        if (_micStreamPump is not null)
         {
-            _micStream.FrameAvailable -= OnMicFrame;
-            try { await _micStream.StopAsync().ConfigureAwait(false); } catch { }
-            await _micStream.DisposeAsync().ConfigureAwait(false);
-            _micStream = null;
+            await _micStreamPump.StopAsync().ConfigureAwait(false);
+            _micStreamPump = null;
         }
-
-        _micChannel?.Writer.TryComplete();
-        if (_micPump is not null)
-        {
-            try { await _micPump.WaitAsync(TimeSpan.FromSeconds(5)).ConfigureAwait(false); }
-            catch (TimeoutException) { }
-            catch (OperationCanceledException) { }
-            _micPump = null;
-        }
-        _micChannel = null;
     }
 
     private async Task ReceiveLoopAsync(CancellationToken ct)

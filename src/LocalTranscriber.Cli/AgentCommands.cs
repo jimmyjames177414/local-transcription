@@ -32,7 +32,7 @@ public static class AgentCommands
             }
             // Running `agent talk` is the explicit user action that opens the realtime connection
             // (ignored by the claude-cli backend, which spawns per turn).
-            if (!string.Equals(config.Agent.Provider, "claude-cli", StringComparison.OrdinalIgnoreCase))
+            if (!AgentProviders.Is(config.Agent.Provider, AgentProvider.ClaudeCli))
             {
                 config.Agent.Realtime.Enabled = true;
             }

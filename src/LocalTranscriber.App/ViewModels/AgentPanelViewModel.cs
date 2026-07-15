@@ -317,13 +317,13 @@ public sealed class AgentPanelViewModel : ObservableObject
     }
 
     /// <summary>Assistant backends the user can pick between.</summary>
-    public string[] Providers { get; } = { "openai", "claude-cli", "hybrid" };
+    public string[] Providers { get; } = AgentProviders.All;
 
     /// <summary>True when the claude-cli backend is selected.</summary>
-    public bool IsClaudeCli => string.Equals(_selectedProvider, "claude-cli", StringComparison.OrdinalIgnoreCase);
+    public bool IsClaudeCli => AgentProviders.Is(_selectedProvider, AgentProvider.ClaudeCli);
 
     /// <summary>True when the hybrid backend is selected (Claude brain + OpenAI voice).</summary>
-    public bool IsHybrid => string.Equals(_selectedProvider, "hybrid", StringComparison.OrdinalIgnoreCase);
+    public bool IsHybrid => AgentProviders.Is(_selectedProvider, AgentProvider.Hybrid);
 
     /// <summary>
     /// Both claude-cli and hybrid use Claude CLI as the brain, so they share the workspace UI, typed-chat
