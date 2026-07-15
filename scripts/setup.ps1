@@ -10,15 +10,37 @@ Set-Location (Join-Path $PSScriptRoot "..")
 dotnet restore LocalTranscriber.sln
 
 if ($DownloadModels) {
-    $whisperModel = "models/whisper/ggml-base.en.bin"
+    New-Item -ItemType Directory -Force -Path "models/whisper" | Out-Null
+
+    $whisperModel = "models/whisper/ggml-small.en.bin"
     if (-not (Test-Path $whisperModel)) {
-        Write-Host "Downloading whisper.cpp model ggml-base.en.bin (~142 MB)..."
-        New-Item -ItemType Directory -Force -Path "models/whisper" | Out-Null
+        Write-Host "Downloading whisper.cpp model ggml-small.en.bin (~466 MB)..."
         Invoke-WebRequest `
-            -Uri "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-base.en.bin" `
+            -Uri "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-small.en.bin" `
             -OutFile $whisperModel
     } else {
         Write-Host "Whisper model already present: $whisperModel"
+    }
+
+    # ggml-base.en.bin kept as an optional fallback for low-spec machines (set WhisperModelPath in config).
+    $whisperBase = "models/whisper/ggml-base.en.bin"
+    if (-not (Test-Path $whisperBase)) {
+        Write-Host "Downloading optional fallback whisper model ggml-base.en.bin (~142 MB)..."
+        Invoke-WebRequest `
+            -Uri "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-base.en.bin" `
+            -OutFile $whisperBase
+    } else {
+        Write-Host "Whisper base fallback already present: $whisperBase"
+    }
+
+    $vadModel = "models/whisper/ggml-silero-v5.1.2.bin"
+    if (-not (Test-Path $vadModel)) {
+        Write-Host "Downloading Silero VAD model ggml-silero-v5.1.2.bin (~1.8 MB)..."
+        Invoke-WebRequest `
+            -Uri "https://huggingface.co/sandrohanea/whisper.net/resolve/v4/vad/ggml-silero-v5.1.2.bin" `
+            -OutFile $vadModel
+    } else {
+        Write-Host "Silero VAD model already present: $vadModel"
     }
 
     $segModel = "models/speaker/segmentation.onnx"

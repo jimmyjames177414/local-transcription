@@ -8,6 +8,15 @@ public sealed record TranscriptionRequest
     public bool TranslateToEnglish { get; init; }
     public bool IncludeTimestamps { get; init; } = true;
     public TimeSpan? Timeout { get; init; }
+
+    // A3: decoding tuning
+    public int BeamSize { get; init; } = 0;       // 0 = greedy; >0 = beam search with this size
+    public int Threads { get; init; } = 0;         // 0 = auto
+    public string? InitialPrompt { get; init; }
+
+    // A4: VAD pre-filter (silence gate before whisper)
+    public bool EnableVad { get; init; }
+    public string? VadModelPath { get; init; }
 }
 
 public sealed record TranscribedSegment(

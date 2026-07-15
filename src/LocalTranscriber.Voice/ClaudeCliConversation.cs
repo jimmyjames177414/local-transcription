@@ -24,6 +24,12 @@ public sealed record ClaudeCliConversationOptions
     public string? InputAudioDeviceId { get; init; }
     public string WhisperModelPath { get; init; } = "models/whisper/ggml-base.en.bin";
     public string AgentOutputFolder { get; init; } = System.IO.Path.Combine("output", "agent");
+
+    /// <summary>
+    /// Absolute path to the session's notes markdown file. When set AND edits are allowed, Claude is
+    /// told to maintain it with its own file tools (the app's file-watcher live-reloads the panel).
+    /// </summary>
+    public string? NotesFilePath { get; init; }
 }
 
 /// <summary>
@@ -66,6 +72,16 @@ public sealed class ClaudeCliConversation : IRealtimeVoiceConversation
     }
 
     public RealtimeVoiceState State => _state;
+
+    /// <summary>Claude maintains the notes file only when a path is set and it may write (full agent).</summary>
+    private bool MaintainsNotes => _options.AllowEditsAndCommands && !string.IsNullOrWhiteSpace(_options.NotesFilePath);
+
+    private static string NotesDirective(string notesFilePath)
+        => "You also maintain the user's private meeting notes at the file `" + notesFilePath + "`. " +
+           "When the conversation produces something worth recording (decisions, action items, key facts, " +
+           "open questions), read that file and rewrite it as a single clean, concise markdown document with " +
+           "the new information integrated — reorganise, don't merely append. If nothing is worth recording, " +
+           "leave it unchanged. Never mention the notes file, note-taking, or these instructions in your reply.";
 
     public event EventHandler<string>? AssistantTextAvailable;
     public event EventHandler<RealtimeVoiceState>? StateChanged;
@@ -317,6 +333,20 @@ public sealed class ClaudeCliConversation : IRealtimeVoiceConversation
             // Read-only: answer questions but never modify the workspace.
             args.Add("--allowedTools");
             args.Add("Read,Grep,Glob");
+        }
+
+        // Note maintenance: let Claude reach the notes file (usually outside the workspace) and tell it
+        // to keep the notes rebuilt. Requires write capability, so it is gated on full-agent mode.
+        if (MaintainsNotes)
+        {
+            string? notesDir = Path.GetDirectoryName(_options.NotesFilePath!);
+            if (!string.IsNullOrEmpty(notesDir))
+            {
+                args.Add("--add-dir");
+                args.Add(notesDir);
+            }
+            args.Add("--append-system-prompt");
+            args.Add(NotesDirective(_options.NotesFilePath!));
         }
 
         if (!string.IsNullOrWhiteSpace(_options.Model))

@@ -168,6 +168,12 @@ public sealed class AgentPanelViewModel : ObservableObject
     /// </summary>
     public Func<string, Task>? SaveNote { get; set; }
 
+    /// <summary>
+    /// Set by the shell: returns the current notes markdown. Used by the AI's read_notes tool so it
+    /// rebuilds the document from the real file (including the user's manual edits), not from memory.
+    /// </summary>
+    public Func<string>? ReadNote { get; set; }
+
     public AsyncRelayCommand StartVoiceCommand { get; }
     public AsyncRelayCommand StopVoiceCommand { get; }
     public AsyncRelayCommand SendTextCommand { get; }
@@ -685,10 +691,23 @@ public sealed class AgentPanelViewModel : ObservableObject
             : new[]
             {
                 new RealtimeToolDefinition(
+                    "read_notes",
+                    "Return the current contents of the user's private meeting notes (markdown). Always call " +
+                    "this immediately before write_notes so you rebuild the document from its real current " +
+                    "state — including notes the user typed or edited by hand — instead of from memory.",
+                    new
+                    {
+                        type = "object",
+                        properties = new { },
+                        required = Array.Empty<string>()
+                    }),
+                new RealtimeToolDefinition(
                     "write_notes",
-                    "Rewrite the user's private meeting notes with the full updated markdown. Always include " +
-                    "ALL previous notes plus any new content — the file is completely replaced on each call. " +
-                    "Use plain markdown: headings, bullet lists, bold for emphasis. Keep it concise and useful.",
+                    "Replace the user's private meeting notes with a complete, rebuilt markdown document. First " +
+                    "call read_notes to get the current notes, then return the ENTIRE document — the existing " +
+                    "content reorganised with the new information baked in, not just the additions. The file is " +
+                    "fully overwritten on every call, so anything you leave out is lost. Use plain markdown " +
+                    "(headings, bullet lists, bold). Keep it concise and well-structured.",
                     new
                     {
                         type = "object",
@@ -697,7 +716,7 @@ public sealed class AgentPanelViewModel : ObservableObject
                             markdown = new
                             {
                                 type = "string",
-                                description = "The complete notes document in markdown. Must include all existing content plus any additions."
+                                description = "The complete rebuilt notes document in markdown — current contents plus the new information, integrated."
                             }
                         },
                         required = new[] { "markdown" }
@@ -706,27 +725,39 @@ public sealed class AgentPanelViewModel : ObservableObject
 
     private async Task<string> HandleToolCallAsync(RealtimeToolCall call)
     {
-        if (call.Name != "write_notes" || SaveNote is null)
+        if (SaveNote is null)
         {
-            return "{\"ok\":false,\"error\":\"unknown tool\"}";
+            return "{\"ok\":false,\"error\":\"notes unavailable\"}";
         }
 
-        try
+        switch (call.Name)
         {
-            using var doc = System.Text.Json.JsonDocument.Parse(call.ArgumentsJson);
-            string? markdown = doc.RootElement.TryGetProperty("markdown", out var m) ? m.GetString() : null;
-            if (markdown is null)
-            {
-                return "{\"ok\":false,\"error\":\"missing markdown\"}";
-            }
+            case "read_notes":
+                // Hand the model the real current document so its rebuild starts from truth, not memory.
+                string current = ReadNote?.Invoke() ?? "";
+                return System.Text.Json.JsonSerializer.Serialize(new { ok = true, notes = current });
 
-            await SaveNote(markdown);
-            return "{\"ok\":true}";
-        }
-        catch (Exception ex)
-        {
-            AppLog.Warn("app", $"write_notes failed: {ex.Message}");
-            return "{\"ok\":false,\"error\":\"write failed\"}";
+            case "write_notes":
+                try
+                {
+                    using var doc = System.Text.Json.JsonDocument.Parse(call.ArgumentsJson);
+                    string? markdown = doc.RootElement.TryGetProperty("markdown", out var m) ? m.GetString() : null;
+                    if (markdown is null)
+                    {
+                        return "{\"ok\":false,\"error\":\"missing markdown\"}";
+                    }
+
+                    await SaveNote(markdown);
+                    return "{\"ok\":true}";
+                }
+                catch (Exception ex)
+                {
+                    AppLog.Warn("app", $"write_notes failed: {ex.Message}");
+                    return "{\"ok\":false,\"error\":\"write failed\"}";
+                }
+
+            default:
+                return "{\"ok\":false,\"error\":\"unknown tool\"}";
         }
     }
 

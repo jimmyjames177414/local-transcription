@@ -12,6 +12,8 @@ public sealed class WhisperCppTranscriptionService : ILocalTranscriptionService,
     private readonly SemaphoreSlim _lock = new(1, 1);
     private WhisperFactory? _factory;
     private string? _loadedModelPath;
+    private WhisperVadFactory? _vadFactory;
+    private string? _loadedVadPath;
 
     public async Task<TranscriptionResult> TranscribeAsync(TranscriptionRequest request, CancellationToken cancellationToken = default)
     {
@@ -38,9 +40,21 @@ public sealed class WhisperCppTranscriptionService : ILocalTranscriptionService,
         await _lock.WaitAsync(linked.Token).ConfigureAwait(false);
         try
         {
-            var factory = GetFactory(request.ModelPath);
+            // A4: VAD pre-filter — skip whisper entirely if no speech detected.
+            if (request.EnableVad && !string.IsNullOrEmpty(request.VadModelPath) && File.Exists(request.VadModelPath))
+            {
+                var vadFactory = GetVadFactory(request.VadModelPath);
+                using var vadProcessor = vadFactory.CreateBuilder().Build();
+                var speechSegments = vadProcessor.DetectSpeech(samples);
+                if (speechSegments.Count == 0)
+                {
+                    return new TranscriptionResult("", Array.Empty<TranscribedSegment>(), null, stopwatch.Elapsed);
+                }
+            }
 
+            var factory = GetFactory(request.ModelPath);
             var builder = factory.CreateBuilder().WithProbabilities();
+
             if (!string.IsNullOrWhiteSpace(request.Language))
             {
                 builder = builder.WithLanguage(request.Language);
@@ -48,6 +62,24 @@ public sealed class WhisperCppTranscriptionService : ILocalTranscriptionService,
             else
             {
                 builder = builder.WithLanguageDetection();
+            }
+
+            // A3: beam search replaces greedy when BeamSize > 0.
+            if (request.BeamSize > 0)
+            {
+                builder = builder.WithBeamSearchSamplingStrategy(b => b.WithBeamSize(request.BeamSize));
+            }
+
+            // A3: explicit thread count; 0 means let whisper.cpp auto-detect.
+            int threads = request.Threads > 0
+                ? request.Threads
+                : Math.Max(1, Environment.ProcessorCount - 1);
+            builder = builder.WithThreads(threads);
+
+            // A3: domain vocabulary prompt.
+            if (!string.IsNullOrWhiteSpace(request.InitialPrompt))
+            {
+                builder = builder.WithPrompt(request.InitialPrompt);
             }
 
             if (request.TranslateToEnglish)
@@ -96,10 +128,25 @@ public sealed class WhisperCppTranscriptionService : ILocalTranscriptionService,
         return _factory;
     }
 
+    private WhisperVadFactory GetVadFactory(string vadModelPath)
+    {
+        string full = Path.GetFullPath(vadModelPath);
+        if (_vadFactory is null || _loadedVadPath != full)
+        {
+            _vadFactory?.Dispose();
+            _vadFactory = WhisperVadFactory.FromPath(full);
+            _loadedVadPath = full;
+        }
+
+        return _vadFactory;
+    }
+
     public void Dispose()
     {
         _factory?.Dispose();
         _factory = null;
+        _vadFactory?.Dispose();
+        _vadFactory = null;
         _lock.Dispose();
     }
 }

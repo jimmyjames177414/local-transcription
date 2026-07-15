@@ -19,4 +19,17 @@ public sealed record TranscriptionSessionOptions
 
     /// <summary>When true, non-speech annotations (e.g. "(engine revving)", "[Music]") are dropped.</summary>
     public bool FilterNonSpeech { get; init; } = true;
+
+    // In-session speaker clustering thresholds (independent of enrolled-speaker recognition).
+    public double SameSpeakerThreshold { get; init; } = 0.50;
+    public double NewSpeakerThreshold { get; init; } = 0.40;
+
+    // Decoding tuning
+    public int WhisperBeamSize { get; init; } = 5;
+    public int WhisperThreads { get; init; } = 0;
+    public string? InitialPrompt { get; init; }
+
+    // VAD pre-filter
+    public bool EnableVad { get; init; } = true;
+    public string? VadModelPath { get; init; }
 }

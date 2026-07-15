@@ -123,7 +123,7 @@ public sealed class RealTranscriptionEngine : ITranscriptionEngine, IAsyncDispos
                 new PlainTextTranscriptWriter(options.OutputTextPath),
                 new JsonlTranscriptWriter(options.OutputJsonlPath));
 
-            _registry = new SessionSpeakerRegistry();
+            _registry = new SessionSpeakerRegistry(options.SameSpeakerThreshold, options.NewSpeakerThreshold);
             _tempDir = Path.Combine(Path.GetTempPath(), "localtranscriber", options.SessionId);
             Directory.CreateDirectory(_tempDir);
 
@@ -327,16 +327,26 @@ public sealed class RealTranscriptionEngine : ITranscriptionEngine, IAsyncDispos
         }
 
         // Resolve each diarized cluster to a speaker label once per window.
+        // B3: average embeddings from up to 3 qualifying segments per cluster for robustness.
+        // B4: clusters whose segments are all too short to embed are excluded from the map;
+        //     their whisper segments fall through to defaultLabel instead of inheriting a
+        //     stale last-created speaker label.
         var clusterLabels = new Dictionary<string, SpeakerLabel>();
         foreach (var cluster in diarized.GroupBy(s => s.TemporarySpeakerId))
         {
-            var longest = cluster.OrderByDescending(s => s.EndMs - s.StartMs).First();
-            clusterLabels[cluster.Key] = await ResolveSpeakerAsync(wavPath, longest, cancellationToken).ConfigureAwait(false);
+            var embedding = await ExtractAveragedEmbeddingAsync(wavPath, cluster, cancellationToken).ConfigureAwait(false);
+            if (embedding is not null)
+            {
+                clusterLabels[cluster.Key] = await ResolveSpeakerFromEmbeddingAsync(embedding, cancellationToken).ConfigureAwait(false);
+            }
         }
 
-        var defaultLabel = clusterLabels.Count == 1
-            ? clusterLabels.Values.First()
-            : new SpeakerLabel("speaker_unknown", _registry?.FallbackLabel() ?? "Speaker 1", IsKnown: false);
+        var defaultLabel = clusterLabels.Count switch
+        {
+            0 => new SpeakerLabel("speaker_unknown", "Speaker 1", IsKnown: false),
+            1 => clusterLabels.Values.First(),
+            _ => new SpeakerLabel("speaker_unknown", "Unknown", IsKnown: false)
+        };
 
         foreach (var segment in result.Segments)
         {
@@ -366,41 +376,92 @@ public sealed class RealTranscriptionEngine : ITranscriptionEngine, IAsyncDispos
         return bestCluster is not null && clusterLabels.TryGetValue(bestCluster, out var label) ? label : null;
     }
 
-    private async Task<SpeakerLabel> ResolveSpeakerAsync(string wavPath, SpeakerSegment segment, CancellationToken cancellationToken)
+    /// <summary>
+    /// Extracts embeddings from up to 3 qualifying segments (≥ 700 ms, longest-first) and
+    /// returns their average, or null if none qualify. Capped to limit per-window CPU cost.
+    /// </summary>
+    private async Task<SpeakerEmbedding?> ExtractAveragedEmbeddingAsync(
+        string wavPath, IEnumerable<SpeakerSegment> segments, CancellationToken ct)
     {
-        if (_embedding is null || _options?.SpeakerModelDir is null || segment.EndMs - segment.StartMs < 700)
+        if (_embedding is null || _options?.SpeakerModelDir is null)
         {
-            return new SpeakerLabel("speaker_unknown", _registry?.FallbackLabel() ?? "Speaker 1", IsKnown: false);
+            return null;
         }
 
-        try
-        {
-            var embedding = await _embedding.ExtractEmbeddingAsync(new SpeakerEmbeddingRequest
-            {
-                AudioPath = wavPath,
-                Models = new SpeakerModelConfig { ModelDir = _options.SpeakerModelDir },
-                StartMs = segment.StartMs,
-                EndMs = segment.EndMs
-            }, cancellationToken).ConfigureAwait(false);
+        var qualifying = segments
+            .Where(s => s.EndMs - s.StartMs >= 700)
+            .OrderByDescending(s => s.EndMs - s.StartMs)
+            .Take(3)
+            .ToList();
 
-            if (_recognition is not null)
+        if (qualifying.Count == 0)
+        {
+            return null;
+        }
+
+        var embeddings = new List<SpeakerEmbedding>(qualifying.Count);
+        foreach (var seg in qualifying)
+        {
+            try
             {
-                var match = await _recognition.MatchAsync(embedding, cancellationToken).ConfigureAwait(false);
+                var emb = await _embedding.ExtractEmbeddingAsync(new SpeakerEmbeddingRequest
+                {
+                    AudioPath = wavPath,
+                    Models = new SpeakerModelConfig { ModelDir = _options.SpeakerModelDir },
+                    StartMs = seg.StartMs,
+                    EndMs = seg.EndMs
+                }, ct).ConfigureAwait(false);
+                embeddings.Add(emb);
+            }
+            catch (Exception ex)
+            {
+                AddWarning($"Speaker embedding failed: {ex.Message}");
+            }
+        }
+
+        if (embeddings.Count == 0)
+        {
+            return null;
+        }
+
+        if (embeddings.Count == 1)
+        {
+            return embeddings[0];
+        }
+
+        int dim = embeddings[0].Dimensions;
+        var sum = new float[dim];
+        foreach (var e in embeddings)
+        {
+            if (e.Dimensions != dim) continue;
+            for (int i = 0; i < dim; i++) sum[i] += e.Vector[i];
+        }
+        var avg = new float[dim];
+        for (int i = 0; i < dim; i++) avg[i] = sum[i] / embeddings.Count;
+        return new SpeakerEmbedding(avg, dim, embeddings[0].ModelName);
+    }
+
+    private async Task<SpeakerLabel> ResolveSpeakerFromEmbeddingAsync(SpeakerEmbedding embedding, CancellationToken ct)
+    {
+        if (_recognition is not null)
+        {
+            try
+            {
+                var match = await _recognition.MatchAsync(embedding, ct).ConfigureAwait(false);
                 if (match is not null)
                 {
                     // Confidence below the writer's threshold renders as "possibly Name".
                     return new SpeakerLabel(match.SpeakerId, match.DisplayName, IsKnown: true, Confidence: match.Similarity);
                 }
             }
+            catch (Exception ex)
+            {
+                AddWarning($"Speaker recognition failed: {ex.Message}");
+            }
+        }
 
-            string label = _registry?.ResolveLabel(embedding) ?? "Speaker 1";
-            return new SpeakerLabel(SessionSpeakerRegistry.LabelToSessionSpeakerId(label), label, IsKnown: false);
-        }
-        catch (Exception ex)
-        {
-            AddWarning($"Speaker embedding failed: {ex.Message}");
-            return new SpeakerLabel("speaker_unknown", _registry?.FallbackLabel() ?? "Speaker 1", IsKnown: false);
-        }
+        string label = _registry?.ResolveLabel(embedding) ?? "Speaker 1";
+        return new SpeakerLabel(SessionSpeakerRegistry.LabelToSessionSpeakerId(label), label, IsKnown: false);
     }
 
     private async Task<TranscriptionResult> TranscribeAsync(string wavPath, CancellationToken cancellationToken)
@@ -410,7 +471,12 @@ public sealed class RealTranscriptionEngine : ITranscriptionEngine, IAsyncDispos
             AudioPath = wavPath,
             ModelPath = _options!.WhisperModelPath!,
             Language = _options.Language,
-            Timeout = TimeSpan.FromSeconds(Math.Max(60, _options.ChunkSeconds * 6))
+            Timeout = TimeSpan.FromSeconds(Math.Max(60, _options.ChunkSeconds * 6)),
+            BeamSize = _options.WhisperBeamSize,
+            Threads = _options.WhisperThreads,
+            InitialPrompt = _options.InitialPrompt,
+            EnableVad = _options.EnableVad,
+            VadModelPath = _options.VadModelPath
         }, cancellationToken).ConfigureAwait(false);
     }
 

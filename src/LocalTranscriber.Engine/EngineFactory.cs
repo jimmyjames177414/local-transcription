@@ -49,9 +49,17 @@ public static class EngineFactory
             MicrophoneSpeakerName = config.DefaultMicSpeakerName,
             WhisperModelPath = config.WhisperModelPath,
             SpeakerModelDir = config.SpeakerModelPath,
+            Language = config.Language,
             ChunkSeconds = config.ChunkSeconds,
             OverlapMs = config.OverlapMs,
-            FilterNonSpeech = config.FilterNonSpeech
+            FilterNonSpeech = config.FilterNonSpeech,
+            SameSpeakerThreshold = config.SameSpeakerThreshold,
+            NewSpeakerThreshold = config.NewSpeakerThreshold,
+            WhisperBeamSize = config.WhisperBeamSize,
+            WhisperThreads = config.WhisperThreads,
+            InitialPrompt = string.IsNullOrEmpty(config.InitialPrompt) ? null : config.InitialPrompt,
+            EnableVad = config.EnableVad,
+            VadModelPath = config.EnableVad ? config.VadModelPath : null
         };
     }
 }
