@@ -13,20 +13,31 @@ public partial class MainWindow : Window
     private readonly NotesService _notesService;
     private bool _spaceTalkHeld;
 
-    public MainWindowViewModel Session { get; } = new();
-    public SettingsViewModel Settings { get; } = new();
-    public SpeakerManagementViewModel SpeakerPanel { get; } = new();
+    public MainWindowViewModel Session { get; }
+    public SettingsViewModel Settings { get; }
+    public SpeakerManagementViewModel SpeakerPanel { get; }
     public AgentPanelViewModel AgentPanel { get; }
     public NotesPanelViewModel Notes { get; }
     public SessionsViewModel SessionsPanel { get; }
 
-    public MainWindow()
+    public MainWindow(
+        MainWindowViewModel session,
+        SettingsViewModel settings,
+        SpeakerManagementViewModel speakerPanel,
+        AgentPanelViewModel agentPanel,
+        NotesPanelViewModel notes,
+        SessionsViewModel sessionsPanel,
+        NotesService notesService)
     {
-        AgentPanel = new AgentPanelViewModel(currentTranscriptPath: () => Session.GroundingJsonlPath);
-        SessionsPanel = new SessionsViewModel(isRecording: () => Session.IsRecording);
+        Session = session;
+        Settings = settings;
+        SpeakerPanel = speakerPanel;
+        AgentPanel = agentPanel;
+        Notes = notes;
+        SessionsPanel = sessionsPanel;
+        _notesService = notesService;
+
         SessionsPanel.LoadRequested += (record, events) => _ = OnLoadSessionRequestedAsync(record, events);
-        _notesService = new NotesService(() => AgentPanel.OutputFolder);
-        Notes = new NotesPanelViewModel(_notesService);
         AgentPanel.SaveNote = (markdown) => _notesService.WriteAsync(markdown);
         AgentPanel.ReadNote = () => _notesService.Content;
         AgentPanel.NotesFilePath = () => _notesService.FilePath;
