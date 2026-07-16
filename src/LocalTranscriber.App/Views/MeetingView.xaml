@@ -12,6 +12,37 @@
         <conv:InverseBooleanConverter x:Key="InverseBool" />
         <conv:CheckMarkConverter x:Key="CheckMarkConverter" />
         <conv:CheckBrushConverter x:Key="CheckBrushConverter" />
+
+        <!-- One half of the header's Realtime/Claude brain segment: quiet by default, accent when picked -->
+        <Style x:Key="SegmentToggleStyle" TargetType="RadioButton">
+            <Setter Property="FontSize" Value="10" />
+            <Setter Property="FontWeight" Value="SemiBold" />
+            <Setter Property="Padding" Value="8,2" />
+            <Setter Property="Cursor" Value="Hand" />
+            <Setter Property="Foreground" Value="{StaticResource Brush.Text.Hint}" />
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="RadioButton">
+                        <Border x:Name="Bd" Background="Transparent" CornerRadius="5" Padding="{TemplateBinding Padding}">
+                            <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center" />
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsChecked" Value="True">
+                                <Setter TargetName="Bd" Property="Background" Value="{StaticResource Brush.Accent.Bg}" />
+                                <Setter Property="Foreground" Value="{StaticResource Brush.Accent.Text}" />
+                            </Trigger>
+                            <MultiTrigger>
+                                <MultiTrigger.Conditions>
+                                    <Condition Property="IsMouseOver" Value="True" />
+                                    <Condition Property="IsChecked" Value="False" />
+                                </MultiTrigger.Conditions>
+                                <Setter TargetName="Bd" Property="Background" Value="{StaticResource Brush.Bg.Chrome}" />
+                            </MultiTrigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
     </UserControl.Resources>
     <Grid SizeChanged="Root_SizeChanged">
         <Grid.RowDefinitions>
@@ -467,6 +498,19 @@
                             </TextBlock.Style>
                         </TextBlock>
                     </Border>
+
+                    <!-- Brain quick-toggle: Realtime (fast, direct) vs Claude (deep, workspace-aware) -->
+                    <Border CornerRadius="6" BorderThickness="1" BorderBrush="{StaticResource Brush.Stroke.Soft}"
+                            Margin="8,0,0,0" Padding="2" VerticalAlignment="Center">
+                        <StackPanel Orientation="Horizontal">
+                            <RadioButton Style="{StaticResource SegmentToggleStyle}" Content="⚡ Realtime" GroupName="Brain"
+                                         IsChecked="{Binding AgentPanel.BrainIsRealtime, Mode=TwoWay}"
+                                         ToolTip="OpenAI Realtime as the brain — fastest replies" />
+                            <RadioButton Style="{StaticResource SegmentToggleStyle}" Content="🧠 Claude" GroupName="Brain"
+                                         IsChecked="{Binding AgentPanel.BrainIsRealtime, Converter={StaticResource InverseBool}, Mode=TwoWay}"
+                                         ToolTip="Claude CLI as the brain — deeper, workspace-aware, slower" />
+                        </StackPanel>
+                    </Border>
                     </StackPanel>
 
                     <!-- Workspace quick-switch (claude-cli backend only) -->
@@ -774,6 +818,9 @@
                                         <DataTrigger Binding="{Binding AgentPanel.ChatInput}" Value="">
                                             <Setter Property="Visibility" Value="Visible" />
                                         </DataTrigger>
+                                        <DataTrigger Binding="{Binding AgentPanel.ShowTalkButton}" Value="False">
+                                            <Setter Property="Text" Value="Type a message…" />
+                                        </DataTrigger>
                                         <DataTrigger Binding="{Binding Session.IsReviewing}" Value="True">
                                             <Setter Property="Text" Value="Ask about this meeting…" />
                                         </DataTrigger>
@@ -783,6 +830,7 @@
                         </TextBlock>
                     </Grid>
                     <Button Grid.Column="1" Width="104" Height="38" Margin="8,0,0,0" Cursor="Hand"
+                            Visibility="{Binding AgentPanel.ShowTalkButton, Converter={StaticResource BoolToVisibility}}"
                             PreviewMouseLeftButtonDown="HoldToTalk_Down" PreviewMouseLeftButtonUp="HoldToTalk_Up">
                         <Button.Style>
                             <Style TargetType="Button">

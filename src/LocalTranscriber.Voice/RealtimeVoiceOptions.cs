@@ -47,6 +47,15 @@ public sealed record RealtimeVoiceOptions
     /// </summary>
     public bool SpeakReplies { get; init; } = true;
 
+    /// <summary>
+    /// True when the session should ask for text replies (output_modalities ["text"]) instead of
+    /// audio: mode off (typed chat) — or captions-only replies in hybrid/pushToTalk, where audio
+    /// would be generated and thrown away. Continuous keeps audio: its barge-in truncation
+    /// depends on audio deltas and playback position.
+    /// </summary>
+    public bool TextOnlyOutput =>
+        Mode == RealtimeVoiceMode.Off || (!SpeakReplies && Mode != RealtimeVoiceMode.Continuous);
+
     public int GroundingIntervalSeconds { get; init; } = 15;
     public int MaxReconnectAttempts { get; init; } = 3;
     public TimeSpan ResponseTimeout { get; init; } = TimeSpan.FromSeconds(45);
@@ -123,8 +132,8 @@ public interface IRealtimeVoiceConversation : IAsyncDisposable
 
     /// <summary>
     /// Interrupts the in-flight turn if the backend supports it, returning to <see cref="RealtimeVoiceState.Ready"/>.
-    /// Default is a no-op (the OpenAI realtime session cancels turns via its own barge-in path); the
-    /// Claude-CLI backend overrides this to kill its long-running child process mid-turn.
+    /// The OpenAI realtime session sends response.cancel; the Claude-CLI backend kills its
+    /// long-running child process mid-turn. Default is a no-op.
     /// </summary>
     void CancelTurn() { }
 

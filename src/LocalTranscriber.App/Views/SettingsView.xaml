@@ -202,7 +202,7 @@
                         <ComboBox Width="160" HorizontalAlignment="Left" Margin="0,0,0,4"
                                   Style="{StaticResource ComboBoxStyle}"
                                   ItemsSource="{Binding AgentPanel.Providers}" SelectedItem="{Binding AgentPanel.SelectedProvider}" />
-                        <TextBlock Text="openai = cloud realtime voice/text; claude-cli = local Claude Code CLI in a workspace; hybrid = Claude does the thinking &amp; notes, OpenAI speaks the replies."
+                        <TextBlock Text="openai = cloud realtime voice/text (fastest — works as pure text chat with voice mode off); claude-cli = local Claude Code CLI in a workspace; hybrid = Claude does the thinking &amp; notes, OpenAI speaks the replies. You can also flip Realtime/Claude from the Assistant header during a meeting."
                                    FontSize="10" Foreground="{StaticResource Brush.Text.Hint}" Margin="0,0,0,12" TextWrapping="Wrap" />
 
                         <!-- Claude CLI workspace picker (claude-cli + hybrid backends) -->

@@ -25,11 +25,7 @@ public static class RealtimeVoiceFactory
         var rt = config.Agent.Realtime;
         var mode = ParseMode(rt.VoiceMode);
 
-        if (mode == RealtimeVoiceMode.Off)
-        {
-            return new Resolution(null, "Voice conversation is off (agent.realtime.voiceMode=off).");
-        }
-
+        // Off is not a blocker: it means a typed text-only chat session (no mic, no playback).
         if (!rt.Enabled)
         {
             return new Resolution(null, "Realtime is not enabled (agent.realtime.enabled=false).");

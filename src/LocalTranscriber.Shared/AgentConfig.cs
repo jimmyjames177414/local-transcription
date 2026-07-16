@@ -6,7 +6,7 @@ namespace LocalTranscriber.Shared;
 /// </summary>
 public enum RealtimeVoiceMode
 {
-    /// <summary>Voice conversation disabled.</summary>
+    /// <summary>No voice input/output: the openai provider runs as a typed text-only chat.</summary>
     Off,
     /// <summary>Hold-to-talk → local whisper STT → send text only (no audio leaves the machine).</summary>
     Hybrid,
@@ -31,6 +31,12 @@ public sealed class AgentConfig
     /// existing configs.
     /// </summary>
     public string Provider { get; set; } = AgentProviders.OpenAI;
+
+    /// <summary>
+    /// Last claude-flavored provider ("claude-cli" or "hybrid") — the Claude side of the meeting
+    /// panel's Realtime/Claude brain toggle, so flipping back restores the user's preferred flavor.
+    /// </summary>
+    public string LastClaudeProvider { get; set; } = AgentProviders.ClaudeCli;
 
     public string ContextFolder { get; set; } = "context";
     public string AgentOutputFolder { get; set; } = Path.Combine("output", "agent");

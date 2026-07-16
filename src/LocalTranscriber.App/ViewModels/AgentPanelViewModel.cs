@@ -43,6 +43,7 @@ public sealed class AgentPanelViewModel : ObservableObject
     private string _chatInput = "";
     private bool _agentEnabled;
     private string _selectedProvider;
+    private string _lastClaudeProvider;
     private string _workspaceFolder;
     private string _claudeModel;
     private bool _useWsl;
@@ -67,6 +68,10 @@ public sealed class AgentPanelViewModel : ObservableObject
         var config = _configService.Load();
         _agentEnabled = config.Agent.Enabled;
         _selectedProvider = config.Agent.Provider;
+        _lastClaudeProvider = AgentProviders.Is(config.Agent.Provider, AgentProvider.ClaudeCli)
+            || AgentProviders.Is(config.Agent.Provider, AgentProvider.Hybrid)
+                ? config.Agent.Provider
+                : config.Agent.LastClaudeProvider;
         _workspaceFolder = config.Agent.ClaudeCli.WorkspaceFolder;
         _claudeModel = config.Agent.ClaudeCli.Model;
         _useWsl = config.Agent.ClaudeCli.UseWsl;
@@ -80,21 +85,15 @@ public sealed class AgentPanelViewModel : ObservableObject
         _outputFolder = config.Agent.AgentOutputFolder;
         RecentWorkspaces = new ObservableCollection<string>(config.Agent.ClaudeCli.RecentWorkspaces);
 
-        StartVoiceCommand = new AsyncRelayCommand(StartVoiceAsync, () => _voice is null && CanConverse);
+        StartVoiceCommand = new AsyncRelayCommand(StartVoiceAsync, () => _voice is null);
         StopVoiceCommand = new AsyncRelayCommand(StopVoiceAsync, () => _voice is not null);
-        SendTextCommand = new AsyncRelayCommand(SendTextAsync, () => AgentEnabled && CanConverse);
+        SendTextCommand = new AsyncRelayCommand(SendTextAsync, () => AgentEnabled);
         CancelTurnCommand = new RelayCommand(() => _voice?.CancelTurn(), () => CanCancelTurn);
         RefreshInputDevicesCommand = new RelayCommand(RefreshDevices);
         OpenContextFolderCommand = new RelayCommand(() => OpenFolder(ContextFolder));
         OpenOutputFolderCommand = new RelayCommand(() => OpenFolder(OutputFolder));
-        EnableAssistantCommand = new RelayCommand(() =>
-        {
-            AgentEnabled = true;
-            if (SelectedVoiceMode == "off")
-            {
-                SelectedVoiceMode = "hybrid";
-            }
-        });
+        // Voice mode is left as-is: "off" is a first-class typed text-chat mode for the openai provider.
+        EnableAssistantCommand = new RelayCommand(() => AgentEnabled = true);
 
         RefreshDevices();
         ProbeApiKey(config);
@@ -224,11 +223,10 @@ public sealed class AgentPanelViewModel : ObservableObject
     public bool IsThinking => _pillState == AgentPillState.Thinking;
 
     /// <summary>
-    /// Shows the mid-turn Cancel affordance. Only the claude-cli backend can interrupt a running turn
-    /// (it kills its child process); the OpenAI realtime <see cref="IRealtimeVoiceConversation.CancelTurn"/>
-    /// is a no-op, so offering Cancel there would mislead.
+    /// Shows the mid-turn Cancel affordance. The claude-cli backend kills its child process; the
+    /// OpenAI realtime session sends response.cancel.
     /// </summary>
-    public bool CanCancelTurn => UsesClaudeBrain && IsThinking;
+    public bool CanCancelTurn => IsThinking;
 
     public string PillText => _pillState switch
     {
@@ -333,12 +331,6 @@ public sealed class AgentPanelViewModel : ObservableObject
     /// </summary>
     public bool UsesClaudeBrain => IsClaudeCli || IsHybrid;
 
-    /// <summary>
-    /// Whether a conversation can be held. The Claude-brain backends are typed-chat first, so they need
-    /// no voice mode; the OpenAI backend still requires a non-off voice mode (its only channel is the socket).
-    /// </summary>
-    private bool CanConverse => UsesClaudeBrain || SelectedVoiceMode != "off";
-
     public string SelectedProvider
     {
         get => _selectedProvider;
@@ -348,15 +340,52 @@ public sealed class AgentPanelViewModel : ObservableObject
             {
                 return;
             }
-            PersistConfig(c => c.Agent.Provider = value);
+            if (AgentProviders.Is(value, AgentProvider.ClaudeCli) || AgentProviders.Is(value, AgentProvider.Hybrid))
+            {
+                _lastClaudeProvider = value;
+                PersistConfig(c => { c.Agent.Provider = value; c.Agent.LastClaudeProvider = value; });
+            }
+            else
+            {
+                PersistConfig(c => c.Agent.Provider = value);
+            }
             OnPropertyChanged(nameof(IsClaudeCli));
             OnPropertyChanged(nameof(IsHybrid));
             OnPropertyChanged(nameof(UsesClaudeBrain));
+            OnPropertyChanged(nameof(BrainIsRealtime));
             OnPropertyChanged(nameof(CanCancelTurn));
             OnPropertyChanged(nameof(ShowOpenAiKeyWarning));
-            StartVoiceCommand.RaiseCanExecuteChanged();
-            SendTextCommand.RaiseCanExecuteChanged();
             CancelTurnCommand.RaiseCanExecuteChanged();
+        }
+    }
+
+    /// <summary>
+    /// The meeting panel's quick brain toggle: Realtime (openai, fastest replies) vs Claude
+    /// (the last-used claude flavor — claude-cli or hybrid). Flipping mid-session tears the
+    /// current session down; the next message lazily reconnects with the new brain.
+    /// </summary>
+    public bool BrainIsRealtime
+    {
+        get => !UsesClaudeBrain;
+        set
+        {
+            if (value != BrainIsRealtime)
+            {
+                _ = SwitchBrainAsync(value);
+            }
+        }
+    }
+
+    private async Task SwitchBrainAsync(bool realtime)
+    {
+        bool wasLive = _voice is not null;
+        await StopVoiceIfRunningAsync();
+        SelectedProvider = realtime
+            ? AgentProviders.OpenAI
+            : string.IsNullOrEmpty(_lastClaudeProvider) ? AgentProviders.ClaudeCli : _lastClaudeProvider;
+        if (wasLive)
+        {
+            StatusText = "Brain switched — reconnects on your next message.";
         }
     }
 
@@ -479,9 +508,11 @@ public sealed class AgentPanelViewModel : ObservableObject
         OnPropertyChanged(nameof(AgentCloudActive));
         OnPropertyChanged(nameof(PrivacyLocalText));
         OnPropertyChanged(nameof(PrivacyAgentText));
-        StartVoiceCommand.RaiseCanExecuteChanged();
-        SendTextCommand.RaiseCanExecuteChanged();
+        OnPropertyChanged(nameof(ShowTalkButton));
     }
+
+    /// <summary>Hold-to-talk only makes sense when a voice mode is active; in text chat it would no-op.</summary>
+    public bool ShowTalkButton => _selectedVoiceMode != "off";
 
     /// <summary>Chat-header badge, e.g. "hybrid · text-only" / "pushToTalk · mic streams".</summary>
     public string ModeBadgeText => _selectedVoiceMode switch
@@ -489,14 +520,15 @@ public sealed class AgentPanelViewModel : ObservableObject
         "hybrid" => "hybrid · text-only",
         "pushToTalk" => "pushToTalk · mic while held",
         "continuous" => "continuous · mic streaming",
-        _ => "off"
+        _ => "text chat"
     };
 
     /// <summary>True for the modes that stream microphone audio to the cloud.</summary>
     public bool ModeSendsAudio => _selectedVoiceMode is "pushToTalk" or "continuous";
 
-    /// <summary>True when the assistant can reach the cloud at all (enabled + a mode picked).</summary>
-    public bool AgentCloudActive => AgentEnabled && _selectedVoiceMode != "off";
+    /// <summary>True when the assistant can reach the cloud at all. Voice mode no longer matters:
+    /// with mode off the openai provider still runs as a typed cloud text chat.</summary>
+    public bool AgentCloudActive => AgentEnabled;
 
     /// <summary>Header readout, green segment: what stays local.</summary>
     public string PrivacyLocalText => AgentCloudActive ? "transcribe → this PC" : "everything local";
@@ -697,6 +729,10 @@ public sealed class AgentPanelViewModel : ObservableObject
     /// <summary>Called from the Talk button / Space key down.</summary>
     public void VoicePushToTalkDown()
     {
+        if (!ShowTalkButton)
+        {
+            return; // text-chat mode: holding Space shouldn't lazily open a session it can't use
+        }
         AppLog.Info("agent", "Push-to-talk down.");
         _holdPending = true;
         if (_voice is null)
@@ -759,7 +795,7 @@ public sealed class AgentPanelViewModel : ObservableObject
             {
                 streaming.IsStreaming = false;
                 string time = DateTimeOffset.Now.ToLocalTime().ToString("HH:mm:ss");
-                streaming.MetaText = SpeakReplies ? $"🔊 spoken privately · {time}" : time;
+                streaming.MetaText = SpeakReplies && SelectedVoiceMode != "off" ? $"🔊 spoken privately · {time}" : time;
             }
         });
 

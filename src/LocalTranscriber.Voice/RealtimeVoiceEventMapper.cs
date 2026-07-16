@@ -55,6 +55,13 @@ public static class RealtimeVoiceEventMapper
                     return new RealtimeVoiceServerEvent(RealtimeVoiceEventKind.AudioTranscriptDone,
                         GetString(root, "transcript") ?? GetString(root, "text"));
 
+                // Text-modality replies (output_modalities ["text"]) reuse the caption channel.
+                case "response.output_text.delta":
+                    return new RealtimeVoiceServerEvent(RealtimeVoiceEventKind.AudioTranscriptDelta, GetString(root, "delta"));
+
+                case "response.output_text.done":
+                    return new RealtimeVoiceServerEvent(RealtimeVoiceEventKind.AudioTranscriptDone, GetString(root, "text"));
+
                 case "conversation.item.input_audio_transcription.completed":
                     return new RealtimeVoiceServerEvent(RealtimeVoiceEventKind.InputAudioTranscriptionDone,
                         GetString(root, "transcript"));
