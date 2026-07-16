@@ -13,11 +13,12 @@ namespace LocalTranscriber.Voice;
 public sealed class HybridBrainConversation : IRealtimeVoiceConversation
 {
     private readonly IRealtimeVoiceConversation _brain;
-    private readonly IReplySpeaker? _speaker;
+    private IReplySpeaker? _speaker;
     private readonly StringBuilder _reply = new();
 
     private CancellationTokenSource? _cts;
     private bool _speakerReady;
+    private volatile bool _suppressNextSpeak;
 
     public HybridBrainConversation(IRealtimeVoiceConversation brain, IReplySpeaker? speaker)
     {
@@ -76,6 +77,14 @@ public sealed class HybridBrainConversation : IRealtimeVoiceConversation
 
     private void OnBrainCompleted(object? sender, EventArgs e)
     {
+        // A cancelled turn's brain still raises ResponseCompleted; suppress re-speaking that reply.
+        if (_suppressNextSpeak)
+        {
+            _suppressNextSpeak = false;
+            _reply.Clear();
+            return;
+        }
+
         ResponseCompleted?.Invoke(this, EventArgs.Empty);
 
         string text = _reply.ToString().Trim();
@@ -114,6 +123,8 @@ public sealed class HybridBrainConversation : IRealtimeVoiceConversation
 
     public void CancelTurn()
     {
+        // Suppress the re-speak that the brain's cancel path would otherwise trigger via ResponseCompleted.
+        _suppressNextSpeak = true;
         _speaker?.StopSpeaking();
         _brain.CancelTurn();
     }
@@ -125,12 +136,15 @@ public sealed class HybridBrainConversation : IRealtimeVoiceConversation
         if (_speaker is not null)
         {
             await _speaker.DisposeAsync().ConfigureAwait(false);
+            _speaker = null;
         }
     }
 
     public async ValueTask DisposeAsync()
     {
-        _cts?.Cancel();
+        // Stop first (idempotent) so the speaker is disposed and nulled there; the guard below is then
+        // false on this second pass, avoiding a double-dispose of the speaker.
+        await StopAsync().ConfigureAwait(false);
         await _brain.DisposeAsync().ConfigureAwait(false);
         if (_speaker is not null)
         {

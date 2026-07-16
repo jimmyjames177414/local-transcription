@@ -11,8 +11,15 @@ namespace LocalTranscriber.Engine;
 public static class EngineFactory
 {
     public static RealTranscriptionEngine CreateReal(AppConfig config)
+        => CreateReal(config, new SqliteDatabase(config.DatabasePath));
+
+    /// <summary>
+    /// Builds the real engine against a caller-provided <see cref="SqliteDatabase"/>, so a DI-hosted
+    /// front-end can share one DB handle across the engine and the speaker-management UI instead of
+    /// opening a second connection to the same file.
+    /// </summary>
+    public static RealTranscriptionEngine CreateReal(AppConfig config, SqliteDatabase db)
     {
-        var db = new SqliteDatabase(config.DatabasePath);
         var speakerStore = new SqliteKnownSpeakerStore(db);
         var embeddingStore = new SqliteSpeakerEmbeddingStore(db);
         var aliasStore = new SqliteSpeakerAliasStore(db);

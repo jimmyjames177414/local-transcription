@@ -129,13 +129,14 @@ public class ClaudeCliConversationTests
 
         int sidIndex = turn1.ToList().IndexOf("--session-id");
         Assert.True(sidIndex >= 0, "first turn should open a session id");
-        string sessionId = turn1[sidIndex + 1];
         Assert.DoesNotContain("--resume", turn1);
 
+        // After the first turn the CLI reported session_id "sess-x" (from the fake's init line).
+        // The second turn must resume with that CLI-reported id, not the GUID we proposed in turn 1.
         Assert.DoesNotContain("--session-id", turn2);
         int resumeIndex = turn2.ToList().IndexOf("--resume");
         Assert.True(resumeIndex >= 0, "second turn should resume");
-        Assert.Equal(sessionId, turn2[resumeIndex + 1]);
+        Assert.Equal("sess-x", turn2[resumeIndex + 1]);
     }
 
     [Fact]

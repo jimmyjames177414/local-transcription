@@ -25,9 +25,10 @@ public sealed class AgentConfig
     public bool Enabled { get; set; }
 
     /// <summary>
-    /// Assistant backend: "openai" (default — OpenAI realtime voice/text) or "claude-cli"
-    /// (shell out to the local Claude Code CLI in a chosen workspace). Defaulting to "openai"
-    /// preserves behaviour for existing configs.
+    /// Assistant backend: "openai" (default — OpenAI realtime voice/text), "claude-cli" (shell out to
+    /// the local Claude Code CLI in a chosen workspace), or "hybrid" (Claude CLI does the thinking and
+    /// notes while OpenAI realtime speaks its replies). Defaulting to "openai" preserves behaviour for
+    /// existing configs.
     /// </summary>
     public string Provider { get; set; } = AgentProviders.OpenAI;
 

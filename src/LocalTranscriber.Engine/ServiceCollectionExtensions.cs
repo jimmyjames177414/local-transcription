@@ -16,9 +16,14 @@ public static class ServiceCollectionExtensions
 {
     public static IServiceCollection AddTranscriptionCore(this IServiceCollection services, AppConfig config)
     {
+        // The shared ConfigService is registered by the composing host (App) so a single instance is
+        // reused everywhere; don't register a second one here.
         services.AddSingleton(config);
-        services.AddSingleton<ConfigService>();
-        services.AddSingleton<ITranscriptionEngine>(_ => EngineFactory.CreateReal(config));
+        services.AddSingleton(sp => new SqliteDatabase(config.DatabasePath));
+        services.AddSingleton<IKnownSpeakerStore>(sp =>
+            new SqliteKnownSpeakerStore(sp.GetRequiredService<SqliteDatabase>()));
+        services.AddSingleton<ITranscriptionEngine>(sp =>
+            EngineFactory.CreateReal(config, sp.GetRequiredService<SqliteDatabase>()));
         return services;
     }
 }

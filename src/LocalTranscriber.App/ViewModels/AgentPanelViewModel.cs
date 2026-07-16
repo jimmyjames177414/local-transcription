@@ -44,6 +44,7 @@ public sealed class AgentPanelViewModel : ObservableObject
     private bool _agentEnabled;
     private string _selectedProvider;
     private string _workspaceFolder;
+    private string _claudeModel;
     private bool _useWsl;
     private string _wslDistro;
     private string _selectedVoiceMode;
@@ -67,6 +68,7 @@ public sealed class AgentPanelViewModel : ObservableObject
         _agentEnabled = config.Agent.Enabled;
         _selectedProvider = config.Agent.Provider;
         _workspaceFolder = config.Agent.ClaudeCli.WorkspaceFolder;
+        _claudeModel = config.Agent.ClaudeCli.Model;
         _useWsl = config.Agent.ClaudeCli.UseWsl;
         _wslDistro = config.Agent.ClaudeCli.WslDistro;
         _selectedVoiceMode = config.Agent.Realtime.VoiceMode;
@@ -372,6 +374,21 @@ public sealed class AgentPanelViewModel : ObservableObject
         }
     }
 
+    /// <summary>Model alias passed to the Claude CLI with --model (e.g. "haiku" for fast meeting help);
+    /// empty uses the CLI default (a slower Sonnet-class model).</summary>
+    public string ClaudeModel
+    {
+        get => _claudeModel;
+        set
+        {
+            if (!SetProperty(ref _claudeModel, value))
+            {
+                return;
+            }
+            PersistConfig(c => c.Agent.ClaudeCli.Model = value ?? "");
+        }
+    }
+
     /// <summary>Run the Claude CLI inside WSL. When true, <see cref="WorkspaceFolder"/> is a Linux path
     /// (e.g. /home/you/repos) and the CLI is launched via wsl.exe in the <see cref="WslDistro"/> distro.</summary>
     public bool UseWsl
@@ -552,10 +569,13 @@ public sealed class AgentPanelViewModel : ObservableObject
                 _configService.Save(config);
             }
 
-            var resolution = AgentConversationFactory.Create(
+            // The factory runs synchronously and, in WSL mode, blocks up to 10s probing the distro.
+            // Offload it so the UI thread stays responsive (keep ConfigureAwait(true) — the rest of
+            // this method touches UI-bound VM state).
+            var resolution = await Task.Run(() => AgentConversationFactory.Create(
                 config, new SecretsService(), _currentTranscriptPath(),
                 tools: BuildTools(), toolHandler: SaveNote is null ? null : HandleToolCallAsync,
-                notesFilePath: NotesFilePath?.Invoke());
+                notesFilePath: NotesFilePath?.Invoke())).ConfigureAwait(true);
             if (resolution.Session is null)
             {
                 StatusText = resolution.Notice ?? "Voice unavailable.";

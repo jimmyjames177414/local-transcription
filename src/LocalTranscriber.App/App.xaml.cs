@@ -27,9 +27,13 @@ public partial class App : Application
     {
         base.OnStartup(e);
 
-        var config = new ConfigService().Load();
+        var configService = new ConfigService();
+        var config = configService.Load();
 
         var builder = Host.CreateApplicationBuilder();
+        // Register the bootstrap ConfigService instance so every view-model shares one, rather than
+        // each constructing its own (AddTranscriptionCore no longer registers one).
+        builder.Services.AddSingleton(configService);
         builder.Services.AddTranscriptionCore(config);
 
         // The control pipe is owned by the host and drives the same engine singleton the UI uses.
@@ -39,6 +43,7 @@ public partial class App : Application
             sp.GetRequiredService<ITranscriptionEngine>(), sp.GetRequiredService<ConfigService>()));
         builder.Services.AddSingleton(sp => new SettingsViewModel(sp.GetRequiredService<ConfigService>()));
         builder.Services.AddSingleton(sp => new SpeakerManagementViewModel(
+            store: sp.GetRequiredService<IKnownSpeakerStore>(),
             configService: sp.GetRequiredService<ConfigService>()));
         builder.Services.AddSingleton(sp => new AgentPanelViewModel(
             configService: sp.GetRequiredService<ConfigService>(),
@@ -52,6 +57,10 @@ public partial class App : Application
         builder.Services.AddSingleton<MainWindow>();
 
         _host = builder.Build();
+        // Start the host so any IHostedService gets its StartAsync (none registered today, so this
+        // is a near no-op, but it makes the host contract correct). OnStartup is synchronous, so
+        // block on it rather than awaiting.
+        _host.StartAsync().GetAwaiter().GetResult();
         _host.Services.GetRequiredService<EngineIpcServer>().Start();
 
         _host.Services.GetRequiredService<MainWindow>().Show();
@@ -59,9 +68,11 @@ public partial class App : Application
 
     protected override void OnExit(ExitEventArgs e)
     {
-        // Async disposal: the engine and the IPC server are IAsyncDisposable, so a synchronous
-        // container dispose would throw. Blocking here is fine at teardown (engine work runs on
-        // ConfigureAwait(false), so it does not need the UI thread).
+        // Stop before dispose so hosted services get a graceful StopAsync. Async disposal: the engine
+        // and the IPC server are IAsyncDisposable, so a synchronous container dispose would throw.
+        // Blocking here is fine at teardown (engine work runs on ConfigureAwait(false), so it does
+        // not need the UI thread).
+        _host?.StopAsync(TimeSpan.FromSeconds(5)).GetAwaiter().GetResult();
         if (_host is IAsyncDisposable asyncHost)
         {
             asyncHost.DisposeAsync().AsTask().GetAwaiter().GetResult();

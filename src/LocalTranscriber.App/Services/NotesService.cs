@@ -90,13 +90,25 @@ public sealed class NotesService : IDisposable
             return;
         }
 
-        string? text = TryReadFile();
-        if (text is null || text == _content)
+        // Read/compare/update _content under the same gate WriteAsync holds, so a concurrent write
+        // can't interleave with this FileSystemWatcher callback and corrupt _content.
+        string? text;
+        _gate.Wait();
+        try
         {
-            return;
+            text = TryReadFile();
+            if (text is null || text == _content)
+            {
+                return;
+            }
+
+            _content = text;
+        }
+        finally
+        {
+            _gate.Release();
         }
 
-        _content = text;
         Changed?.Invoke(text);
     }
 

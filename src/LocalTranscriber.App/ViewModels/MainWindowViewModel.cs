@@ -5,7 +5,6 @@ using System.Windows.Threading;
 using LocalTranscriber.App.Mvvm;
 using LocalTranscriber.App.Services;
 using LocalTranscriber.Engine;
-using LocalTranscriber.Engine.Ipc;
 using LocalTranscriber.Shared;
 using LocalTranscriber.Storage;
 
@@ -24,7 +23,6 @@ public sealed class MainWindowViewModel : ObservableObject
 {
     private readonly ITranscriptionEngine _engine;
     private readonly AppConfig _config;
-    private readonly EngineIpcServer? _ipcServer;
     private readonly SynchronizationContext? _uiContext;
     private readonly Stopwatch _recordingWatch = new();
     private DispatcherTimer? _elapsedTimer;
@@ -39,16 +37,10 @@ public sealed class MainWindowViewModel : ObservableObject
     private int _selectedScreenIndex = (int)AppScreen.Meeting;
     private TranscriptionSessionState _state = TranscriptionSessionState.NotStarted;
 
-    public MainWindowViewModel(ITranscriptionEngine? engine = null, ConfigService? configService = null)
+    public MainWindowViewModel(ITranscriptionEngine engine, ConfigService? configService = null)
     {
         _config = (configService ?? new ConfigService()).Load();
-        if (engine is null)
-        {
-            engine = EngineFactory.CreateReal(_config);
-            _ipcServer = new EngineIpcServer(engine);
-            _ipcServer.Start();
-        }
-
+        // The engine is always injected by the host, which also owns the single EngineIpcServer.
         _engine = engine;
         _uiContext = SynchronizationContext.Current;
         _outputFolder = _config.TranscriptFolder;
@@ -666,9 +658,6 @@ public sealed class MainWindowViewModel : ObservableObject
     {
         _streamCts?.Cancel();
         await _engine.StopAsync();
-        if (_ipcServer is not null)
-        {
-            await _ipcServer.DisposeAsync();
-        }
+        // The host owns and disposes the EngineIpcServer singleton; nothing to dispose here.
     }
 }

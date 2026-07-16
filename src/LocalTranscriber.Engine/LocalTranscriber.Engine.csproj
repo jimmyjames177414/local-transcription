@@ -5,6 +5,10 @@
   </ItemGroup>
 
   <ItemGroup>
+    <InternalsVisibleTo Include="LocalTranscriber.Engine.Tests" />
+  </ItemGroup>
+
+  <ItemGroup>
     <ProjectReference Include="..\LocalTranscriber.Shared\LocalTranscriber.Shared.csproj" />
     <ProjectReference Include="..\LocalTranscriber.Storage\LocalTranscriber.Storage.csproj" />
     <ProjectReference Include="..\LocalTranscriber.Audio\LocalTranscriber.Audio.csproj" />

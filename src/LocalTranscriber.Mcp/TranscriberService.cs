@@ -80,7 +80,8 @@ public sealed class TranscriberService
         await Engine.StartAsync(options, cancellationToken);
         CurrentOptions = options;
         _ownsSession = true;
-        await TryHostIpcAsync(_current, cancellationToken).ConfigureAwait(false);
+        try { await TryHostIpcAsync(_current, cancellationToken).ConfigureAwait(false); }
+        catch (Exception ex) { AppLog.Warn("mcp", $"IPC host probe failed (non-fatal): {ex.Message}"); }
         return options;
     }
 
@@ -94,7 +95,8 @@ public sealed class TranscriberService
         await _current.StartAsync(options, cancellationToken);
         CurrentOptions = options;
         _ownsSession = true;
-        await TryHostIpcAsync(_current, cancellationToken).ConfigureAwait(false);
+        try { await TryHostIpcAsync(_current, cancellationToken).ConfigureAwait(false); }
+        catch (Exception ex) { AppLog.Warn("mcp", $"IPC host probe failed (non-fatal): {ex.Message}"); }
         return options;
     }
 
@@ -148,9 +150,8 @@ public sealed class TranscriberService
             return remote.Message ?? (remote.Ok ? okMessage : "Command failed.");
         }
 
-        // Nothing owns the pipe — operate on the idle in-process engine so behavior is defined.
-        await inProcess(cancellationToken).ConfigureAwait(false);
-        return okMessage;
+        // Nothing owns the pipe and this process owns no session — there is nothing to control.
+        return "No active session.";
     }
 
     /// <summary>

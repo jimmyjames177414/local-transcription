@@ -9,6 +9,11 @@ on:
   pull_request:
     branches: ["**"]
 
+# Supersede in-progress runs for the same ref (e.g. rapid pushes) instead of queueing them all.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   build-test:
     runs-on: windows-latest
@@ -21,6 +26,8 @@ jobs:
         uses: actions/setup-dotnet@v4
         with:
           dotnet-version: "8.0.x"
+          cache: true
+          cache-dependency-path: "**/packages.lock.json"
 
       - name: Restore
         run: dotnet restore LocalTranscriber.sln

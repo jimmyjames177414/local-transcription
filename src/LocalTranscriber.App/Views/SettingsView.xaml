@@ -234,7 +234,18 @@
                                         Click="BrowseWorkspaceFolder_Click"
                                         Visibility="{Binding AgentPanel.UseWsl, Converter={StaticResource InverseBoolToVisibility}}" />
                             </Grid>
-                            <TextBlock Text="The CLI runs here and reads that project's CLAUDE.md, files, memory, and MCP tools. In WSL mode type a Linux path (e.g. /home/you/repos) and trust it once in WSL. Full-agent mode asks for consent on first connect, then can edit files and run commands here."
+                            <!-- WSL: the Browse button is hidden because the Windows picker can't navigate Linux paths. -->
+                            <TextBlock Text="Type the Linux workspace path (e.g. /home/you/repos) — the Browse picker is hidden because the Windows folder dialog can't navigate WSL paths. Trust the folder once in WSL. Full-agent mode asks for consent on first connect, then can edit files and run commands here."
+                                       Visibility="{Binding AgentPanel.UseWsl, Converter={StaticResource BoolToVisibility}}"
+                                       FontSize="10" Foreground="{StaticResource Brush.Text.Hint}" Margin="0,0,0,12" TextWrapping="Wrap" />
+                            <TextBlock Text="The CLI runs here and reads that project's CLAUDE.md, files, memory, and MCP tools. Full-agent mode asks for consent on first connect, then can edit files and run commands here."
+                                       Visibility="{Binding AgentPanel.UseWsl, Converter={StaticResource InverseBoolToVisibility}}"
+                                       FontSize="10" Foreground="{StaticResource Brush.Text.Hint}" Margin="0,0,0,12" TextWrapping="Wrap" />
+
+                            <TextBlock Text="Model" Style="{StaticResource FieldLabel}" />
+                            <TextBox Style="{StaticResource TextInputStyle}" Width="240" HorizontalAlignment="Left" Margin="0,0,0,4"
+                                     Text="{Binding AgentPanel.ClaudeModel, UpdateSourceTrigger=LostFocus}" />
+                            <TextBlock Text="Model alias passed to the CLI (e.g. haiku for fast meeting help). Leave blank for the CLI default."
                                        FontSize="10" Foreground="{StaticResource Brush.Text.Hint}" Margin="0,0,0,12" TextWrapping="Wrap" />
                         </StackPanel>
 

@@ -112,17 +112,25 @@ public sealed class EngineIpcServer : IAsyncDisposable
     public async ValueTask DisposeAsync()
     {
         _cts.Cancel();
+        bool listenerStopped = _listener is null;
         if (_listener is not null)
         {
             try
             {
                 await _listener.WaitAsync(TimeSpan.FromSeconds(2)).ConfigureAwait(false);
+                listenerStopped = true;
             }
             catch (TimeoutException)
             {
             }
         }
-        _cts.Dispose();
+
+        // Only dispose the CTS once the listener has actually stopped — a timed-out listener may still
+        // be inside WaitForConnectionAsync(_cts.Token), and disposing the source under it would throw.
+        if (listenerStopped)
+        {
+            _cts.Dispose();
+        }
     }
 }
 

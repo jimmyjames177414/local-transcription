@@ -11,6 +11,7 @@ namespace LocalTranscriber.App;
 public partial class MainWindow : Window
 {
     private readonly NotesService _notesService;
+    private readonly LocalTranscriber.Storage.ConfigService _configService;
     private bool _spaceTalkHeld;
 
     public MainWindowViewModel Session { get; }
@@ -27,7 +28,8 @@ public partial class MainWindow : Window
         AgentPanelViewModel agentPanel,
         NotesPanelViewModel notes,
         SessionsViewModel sessionsPanel,
-        NotesService notesService)
+        NotesService notesService,
+        LocalTranscriber.Storage.ConfigService configService)
     {
         Session = session;
         Settings = settings;
@@ -36,6 +38,7 @@ public partial class MainWindow : Window
         Notes = notes;
         SessionsPanel = sessionsPanel;
         _notesService = notesService;
+        _configService = configService;
 
         SessionsPanel.LoadRequested += (record, events) => _ = OnLoadSessionRequestedAsync(record, events);
         AgentPanel.SaveNote = (markdown) => _notesService.WriteAsync(markdown);
@@ -63,12 +66,34 @@ public partial class MainWindow : Window
         PreviewKeyDown += OnPreviewKeyDown;
         PreviewKeyUp += OnPreviewKeyUp;
         SizeChanged += OnWindowSizeChanged;
-        Closing += async (_, _) =>
+    }
+
+    private bool _closingConfirmed;
+
+    /// <summary>
+    /// Cancels the first close, tears the conversation/session down asynchronously, then re-closes.
+    /// The DI container disposes the singleton services (including <see cref="NotesService"/>) at
+    /// host teardown, so we never dispose them here.
+    /// </summary>
+    protected override async void OnClosing(CancelEventArgs e)
+    {
+        if (_closingConfirmed)
+        {
+            base.OnClosing(e);
+            return;
+        }
+
+        e.Cancel = true;
+        try
         {
             await AgentPanel.ShutdownAsync();
             await Session.ShutdownAsync();
-            _notesService.Dispose();
-        };
+        }
+        finally
+        {
+            _closingConfirmed = true;
+            Close();
+        }
     }
 
     private void OnSessionPropertyChanged(object? sender, PropertyChangedEventArgs e)
@@ -113,7 +138,7 @@ public partial class MainWindow : Window
     {
         try
         {
-            var config = new LocalTranscriber.Storage.ConfigService().Load();
+            var config = _configService.Load();
             var service = new LocalTranscriber.Storage.SessionDeletionService(config);
             var files = await service.ListFilesAsync(item.Session.Id);
             bool hasMinutes = service.FindMinutesFiles(item.Session.Id).Length > 0;

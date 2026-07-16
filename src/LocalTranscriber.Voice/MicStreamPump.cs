@@ -14,6 +14,7 @@ internal sealed class MicStreamPump
 {
     private readonly Func<IAgentMicStream> _micStreamFactory;
     private readonly Func<byte[], CancellationToken, Task> _sendFrame;
+    private readonly SemaphoreSlim _lock = new(1, 1);
 
     private IAgentMicStream? _micStream;
     private Channel<byte[]>? _channel;
@@ -29,20 +30,29 @@ internal sealed class MicStreamPump
 
     public async Task StartAsync(CancellationToken ct)
     {
-        if (_micStream is not null)
+        // Serialize with StopAsync so a Start racing a Stop can't leave a mic open after the stop.
+        await _lock.WaitAsync(ct).ConfigureAwait(false);
+        try
         {
-            return;
-        }
+            if (_micStream is not null)
+            {
+                return;
+            }
 
-        _channel = Channel.CreateBounded<byte[]>(new BoundedChannelOptions(64)
+            _channel = Channel.CreateBounded<byte[]>(new BoundedChannelOptions(64)
+            {
+                FullMode = BoundedChannelFullMode.DropOldest,
+                SingleReader = true
+            });
+            _micStream = _micStreamFactory();
+            _micStream.FrameAvailable += OnMicFrame;
+            _pump = Task.Run(() => PumpAsync(ct), CancellationToken.None);
+            await _micStream.StartAsync(ct).ConfigureAwait(false);
+        }
+        finally
         {
-            FullMode = BoundedChannelFullMode.DropOldest,
-            SingleReader = true
-        });
-        _micStream = _micStreamFactory();
-        _micStream.FrameAvailable += OnMicFrame;
-        _pump = Task.Run(() => PumpAsync(ct), CancellationToken.None);
-        await _micStream.StartAsync(ct).ConfigureAwait(false);
+            _lock.Release();
+        }
     }
 
     private void OnMicFrame(object? sender, byte[] frame)
@@ -81,22 +91,30 @@ internal sealed class MicStreamPump
 
     public async Task StopAsync()
     {
-        if (_micStream is not null)
+        await _lock.WaitAsync().ConfigureAwait(false);
+        try
         {
-            _micStream.FrameAvailable -= OnMicFrame;
-            try { await _micStream.StopAsync().ConfigureAwait(false); } catch { }
-            await _micStream.DisposeAsync().ConfigureAwait(false);
-            _micStream = null;
-        }
+            if (_micStream is not null)
+            {
+                _micStream.FrameAvailable -= OnMicFrame;
+                try { await _micStream.StopAsync().ConfigureAwait(false); } catch { }
+                await _micStream.DisposeAsync().ConfigureAwait(false);
+                _micStream = null;
+            }
 
-        _channel?.Writer.TryComplete();
-        if (_pump is not null)
-        {
-            try { await _pump.WaitAsync(TimeSpan.FromSeconds(5)).ConfigureAwait(false); }
-            catch (TimeoutException) { }
-            catch (OperationCanceledException) { }
-            _pump = null;
+            _channel?.Writer.TryComplete();
+            if (_pump is not null)
+            {
+                try { await _pump.WaitAsync(TimeSpan.FromSeconds(5)).ConfigureAwait(false); }
+                catch (TimeoutException) { }
+                catch (OperationCanceledException) { }
+                _pump = null;
+            }
+            _channel = null;
         }
-        _channel = null;
+        finally
+        {
+            _lock.Release();
+        }
     }
 }

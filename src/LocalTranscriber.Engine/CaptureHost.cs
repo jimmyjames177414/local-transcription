@@ -164,25 +164,36 @@ internal sealed class CaptureHost : IAsyncDisposable
                     _mic = null;
                 }
                 Interlocked.Exchange(ref _lastMicChunkMs, Environment.TickCount64);
+                // Own the new capture in a local until start succeeds — if StartAsync throws it is
+                // never assigned to _mic, so the finally disposes it rather than leaking the handle.
+                var capture = _micFactory();
                 try
                 {
-                    var capture = _micFactory();
                     if (capture.IsAvailable(captureOptions))
                     {
                         await capture.StartAsync(captureOptions, cancellationToken).ConfigureAwait(false);
                         capture.ChunkAvailable += OnMicChunk;
                         _mic = capture;
+                        capture = null!; // ownership transferred to _mic
                         AppLog.Info("engine", "Microphone capture reconnected.");
                     }
                     else
                     {
                         await capture.DisposeAsync().ConfigureAwait(false);
+                        capture = null!;
                         _addWarning("Microphone unavailable after reconnect; mic capture suspended.");
                     }
                 }
                 catch (Exception ex)
                 {
                     _addWarning($"Microphone reconnect failed: {ex.Message}");
+                }
+                finally
+                {
+                    if (capture is not null)
+                    {
+                        await capture.DisposeAsync().ConfigureAwait(false);
+                    }
                 }
             }
             else
@@ -194,25 +205,36 @@ internal sealed class CaptureHost : IAsyncDisposable
                     _system = null;
                 }
                 Interlocked.Exchange(ref _lastSystemChunkMs, Environment.TickCount64);
+                // Own the new capture in a local until start succeeds — if StartAsync throws it is
+                // never assigned to _system, so the finally disposes it rather than leaking the handle.
+                var capture = _systemFactory();
                 try
                 {
-                    var capture = _systemFactory();
                     if (capture.IsAvailable(captureOptions))
                     {
                         await capture.StartAsync(captureOptions, cancellationToken).ConfigureAwait(false);
                         capture.ChunkAvailable += OnSystemChunk;
                         _system = capture;
+                        capture = null!; // ownership transferred to _system
                         AppLog.Info("engine", "System audio capture reconnected.");
                     }
                     else
                     {
                         await capture.DisposeAsync().ConfigureAwait(false);
+                        capture = null!;
                         _addWarning("System audio unavailable after reconnect; system capture suspended.");
                     }
                 }
                 catch (Exception ex)
                 {
                     _addWarning($"System audio reconnect failed: {ex.Message}");
+                }
+                finally
+                {
+                    if (capture is not null)
+                    {
+                        await capture.DisposeAsync().ConfigureAwait(false);
+                    }
                 }
             }
         }

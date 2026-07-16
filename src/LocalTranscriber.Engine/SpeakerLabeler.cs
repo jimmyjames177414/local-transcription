@@ -165,13 +165,15 @@ internal sealed class SpeakerLabeler
 
         int dim = embeddings[0].Dimensions;
         var sum = new float[dim];
+        int contributing = 0;
         foreach (var e in embeddings)
         {
             if (e.Dimensions != dim) continue;
             for (int i = 0; i < dim; i++) sum[i] += e.Vector[i];
+            contributing++;
         }
         var avg = new float[dim];
-        for (int i = 0; i < dim; i++) avg[i] = sum[i] / embeddings.Count;
+        for (int i = 0; i < dim; i++) avg[i] = sum[i] / contributing;
         return new SpeakerEmbedding(avg, dim, embeddings[0].ModelName);
     }
 

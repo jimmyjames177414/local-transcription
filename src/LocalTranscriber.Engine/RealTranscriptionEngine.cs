@@ -417,6 +417,10 @@ public sealed class RealTranscriptionEngine : ITranscriptionEngine, IAsyncDispos
             _cts = null;
             _processor = null;
 
+            // Discard events written during drain so they don't bleed into the next session — the
+            // engine instance is reused across sessions, and _events is only completed in DisposeAsync.
+            while (_events.Reader.TryRead(out _)) { }
+
             if (_writer is not null)
             {
                 await _writer.DisposeAsync().ConfigureAwait(false);

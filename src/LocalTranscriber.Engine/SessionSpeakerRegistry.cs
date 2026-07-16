@@ -125,13 +125,4 @@ public sealed class SessionSpeakerRegistry
             return newLabel;
         }
     }
-
-    /// <summary>Fallback label when no embedding could be extracted (very short segment).</summary>
-    public string FallbackLabel()
-    {
-        lock (_lock)
-        {
-            return _speakers.Count > 0 ? _speakers[^1].Label : "Speaker 1";
-        }
-    }
 }

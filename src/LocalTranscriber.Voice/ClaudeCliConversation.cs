@@ -116,7 +116,7 @@ public sealed class ClaudeCliConversation : IRealtimeVoiceConversation
             throw new InvalidOperationException("Claude CLI conversation not started.");
         }
 
-        _ = RunGuardedTurnAsync(text);
+        _ = RunGuardedTurnAsync(text, cancellationToken);
         return Task.CompletedTask;
     }
 
@@ -202,11 +202,11 @@ public sealed class ClaudeCliConversation : IRealtimeVoiceConversation
         _turnCts?.Cancel();
     }
 
-    private async Task RunGuardedTurnAsync(string text)
+    private async Task RunGuardedTurnAsync(string text, CancellationToken cancellationToken = default)
     {
         try
         {
-            await RunTurnAsync(text).ConfigureAwait(false);
+            await RunTurnAsync(text, cancellationToken).ConfigureAwait(false);
         }
         catch (Exception ex)
         {
@@ -216,7 +216,7 @@ public sealed class ClaudeCliConversation : IRealtimeVoiceConversation
         }
     }
 
-    private async Task RunTurnAsync(string userText)
+    private async Task RunTurnAsync(string userText, CancellationToken cancellationToken = default)
     {
         userText = userText.Trim();
         if (userText.Length == 0)
@@ -243,7 +243,8 @@ public sealed class ClaudeCliConversation : IRealtimeVoiceConversation
 
         _turnCancelledByUser = false;
         var sessionToken = _sessionCts?.Token ?? CancellationToken.None;
-        var turnCts = CancellationTokenSource.CreateLinkedTokenSource(sessionToken);
+        // Link the caller's token too so a send cancelled by the caller also tears the turn down.
+        var turnCts = CancellationTokenSource.CreateLinkedTokenSource(sessionToken, cancellationToken);
         turnCts.CancelAfter(TimeSpan.FromSeconds(Math.Max(1, _options.TimeoutSeconds)));
         _turnCts = turnCts;
 
@@ -267,7 +268,6 @@ public sealed class ClaudeCliConversation : IRealtimeVoiceConversation
             }
 
             int exitCode = await process.WaitForExitAsync(turnCts.Token).ConfigureAwait(false);
-            _firstTurn = false;
 
             if (exitCode != 0 || errored)
             {
@@ -278,6 +278,9 @@ public sealed class ClaudeCliConversation : IRealtimeVoiceConversation
             }
             else
             {
+                // Only advance past the first turn on success — a failed first turn never opened a
+                // session, so the next turn must still use --session-id rather than --resume.
+                _firstTurn = false;
                 ResponseCompleted?.Invoke(this, EventArgs.Empty);
             }
         }
@@ -475,7 +478,9 @@ public sealed class ClaudeCliConversation : IRealtimeVoiceConversation
                 case "system"
                     when root.TryGetProperty("subtype", out var st) && st.GetString() == "init"
                         && root.TryGetProperty("session_id", out var sid) && sid.GetString() is { Length: > 0 } id:
-                    _sessionId ??= id;
+                    // The CLI's reported id wins: BuildArgs pre-sets a GUID for the first turn, so a
+                    // ??= here would never adopt the real session id and --resume would break.
+                    _sessionId = id;
                     break;
 
                 case "assistant"
@@ -484,11 +489,23 @@ public sealed class ClaudeCliConversation : IRealtimeVoiceConversation
                         && content.ValueKind == JsonValueKind.Array:
                     foreach (var block in content.EnumerateArray())
                     {
-                        if (block.TryGetProperty("type", out var bt) && bt.GetString() == "text"
-                            && block.TryGetProperty("text", out var txt)
-                            && txt.GetString() is { Length: > 0 } text)
+                        if (!block.TryGetProperty("type", out var bt))
                         {
-                            deltas.Add(text);
+                            continue;
+                        }
+                        switch (bt.GetString())
+                        {
+                            case "text"
+                                when block.TryGetProperty("text", out var txt)
+                                    && txt.GetString() is { Length: > 0 } text:
+                                deltas.Add(text);
+                                break;
+                            // Surface tool activity so the user sees Claude is working (not stalled).
+                            case "tool_use"
+                                when block.TryGetProperty("name", out var tn)
+                                    && tn.GetString() is { Length: > 0 } toolName:
+                                deltas.Add(ToolUseHint(toolName));
+                                break;
                         }
                     }
                     break;
@@ -584,6 +601,20 @@ public sealed class ClaudeCliConversation : IRealtimeVoiceConversation
         }
     }
 
+    /// <summary>A short italic "working…" caption for a tool_use block, so the user sees Claude is busy.</summary>
+    private static string ToolUseHint(string toolName) => toolName switch
+    {
+        "Read" => "_[Reading file…]_\n",
+        "Grep" => "_[Searching code…]_\n",
+        "Glob" => "_[Finding files…]_\n",
+        "Bash" => "_[Running command…]_\n",
+        "Edit" => "_[Editing file…]_\n",
+        "Write" => "_[Writing file…]_\n",
+        "WebFetch" => "_[Fetching page…]_\n",
+        "WebSearch" => "_[Searching the web…]_\n",
+        _ => $"_[{toolName}…]_\n"
+    };
+
     private static string Truncate(string text)
     {
         text = text.Trim();
@@ -607,6 +638,11 @@ public sealed class ClaudeCliConversation : IRealtimeVoiceConversation
 
     public async Task StopAsync(CancellationToken cancellationToken = default)
     {
+        // Reset the session identity so a restarted conversation opens a fresh CLI session rather than
+        // trying to --resume a dead one. Done before the guard so it runs even on a redundant stop.
+        _firstTurn = true;
+        _sessionId = null;
+
         if (_state is RealtimeVoiceState.Stopped)
         {
             return;
