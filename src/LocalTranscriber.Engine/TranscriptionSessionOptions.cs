@@ -3,6 +3,8 @@ namespace LocalTranscriber.Engine;
 public sealed record TranscriptionSessionOptions
 {
     public string SessionId { get; init; } = Guid.NewGuid().ToString("N");
+    /// <summary>Resume an existing session — append to its files and reopen the DB row instead of creating a new one.</summary>
+    public bool ContinueExisting { get; init; } = false;
     public required string OutputTextPath { get; init; }
     public required string OutputJsonlPath { get; init; }
     public bool EnableMicrophone { get; init; } = true;

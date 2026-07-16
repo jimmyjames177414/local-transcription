@@ -70,9 +70,16 @@ public sealed class FakeTranscriptionEngine : ITranscriptionEngine, IAsyncDispos
 
             if (_sessionStore is not null)
             {
-                await _sessionStore.CreateAsync(new SessionRecord(
-                    options.SessionId, _startedAt.Value, null,
-                    options.OutputTextPath, options.OutputJsonlPath, "recording"), cancellationToken).ConfigureAwait(false);
+                if (options.ContinueExisting)
+                {
+                    await _sessionStore.ReopenAsync(options.SessionId, cancellationToken).ConfigureAwait(false);
+                }
+                else
+                {
+                    await _sessionStore.CreateAsync(new SessionRecord(
+                        options.SessionId, _startedAt.Value, null,
+                        options.OutputTextPath, options.OutputJsonlPath, "recording"), cancellationToken).ConfigureAwait(false);
+                }
             }
 
             _loop = Task.Run(() => RunLoopAsync(options, _cts.Token), CancellationToken.None);
@@ -281,6 +288,9 @@ public sealed class FakeTranscriptionEngine : ITranscriptionEngine, IAsyncDispos
         => Task.FromResult(false);
 
     public Task<bool> RenameKnownSpeakerAsync(string oldName, string newName, CancellationToken cancellationToken = default)
+        => Task.FromResult(false);
+
+    public Task<bool> OverrideEventSpeakerAsync(string sessionId, string eventId, string newName, CancellationToken cancellationToken = default)
         => Task.FromResult(false);
 
     public Task UpdateSessionTitleAsync(string sessionId, string? title, CancellationToken cancellationToken = default)

@@ -63,6 +63,9 @@ public class MinutesExportHookTests : IAsyncLifetime
                 ? throw new InvalidOperationException("boom")
                 : Task.FromResult<IReadOnlyList<TranscriptEvent>>(Events);
 
+        public Task<DateTimeOffset?> GetLastTimestampAsync(string sessionId, CancellationToken cancellationToken = default)
+            => Task.FromResult(Events.Count == 0 ? (DateTimeOffset?)null : Events.Max(e => e.Timestamp));
+
         public Task DeleteBySessionAsync(string sessionId, CancellationToken cancellationToken = default)
             => throw new NotSupportedException();
 

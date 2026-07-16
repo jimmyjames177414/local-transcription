@@ -311,4 +311,122 @@ public class SqliteStoreTests : IDisposable
         await speakers.ForgetAsync("Joe");
         Assert.Empty(await embeddings.ListBySpeakerAsync(joe.Id));
     }
+
+    [Fact]
+    public async Task ReopenAsync_SetsStatusRecordingAndClearsEndedAt()
+    {
+        // arrange: create + end a session
+        var store = new SqliteSessionStore(_db);
+        var id = Guid.NewGuid().ToString("N");
+        await store.CreateAsync(new SessionRecord(id, DateTimeOffset.UtcNow, null, "a.txt", "a.jsonl", "recording"));
+        await store.EndAsync(id, DateTimeOffset.UtcNow, "stopped");
+
+        // act
+        await store.ReopenAsync(id);
+
+        // assert
+        var session = await store.GetAsync(id);
+        Assert.NotNull(session);
+        Assert.Equal("recording", session!.Status);
+        Assert.Null(session.EndedAt);
+    }
+
+    // ── EventSpeakerOverrideStore ─────────────────────────────────────────────
+
+    [Fact]
+    public async Task EventSpeakerOverrides_UpsertResolveAndList()
+    {
+        var store = new SqliteEventSpeakerOverrideStore(_db);
+
+        Assert.Null(await store.ResolveAsync("s1", "evt1"));
+
+        await store.UpsertAsync("s1", "evt1", "Bob", null);
+        await store.UpsertAsync("s1", "evt2", "Carol", "known-carol-id");
+
+        Assert.Equal("Bob", await store.ResolveAsync("s1", "evt1"));
+        Assert.Equal("Carol", await store.ResolveAsync("s1", "evt2"));
+
+        // Different session: no resolution.
+        Assert.Null(await store.ResolveAsync("s2", "evt1"));
+
+        var list = await store.ListForSessionAsync("s1");
+        Assert.Equal(2, list.Count);
+        Assert.Contains(list, x => x.EventId == "evt1" && x.DisplayName == "Bob");
+        Assert.Contains(list, x => x.EventId == "evt2" && x.DisplayName == "Carol");
+
+        Assert.Empty(await store.ListForSessionAsync("s2"));
+    }
+
+    [Fact]
+    public async Task EventSpeakerOverrides_Upsert_UpdatesExistingEntry()
+    {
+        var store = new SqliteEventSpeakerOverrideStore(_db);
+
+        await store.UpsertAsync("s1", "evt1", "Bob", null);
+        await store.UpsertAsync("s1", "evt1", "Robert", null); // overwrite same key
+
+        Assert.Equal("Robert", await store.ResolveAsync("s1", "evt1"));
+
+        // Only one row for this (session, event) pair.
+        var list = await store.ListForSessionAsync("s1");
+        Assert.Single(list);
+    }
+
+    // ── SpeakerNameResolver — event override precedence ───────────────────────
+
+    [Fact]
+    public async Task SpeakerNameResolver_EventOverride_WinsOverAliasAndDirectId()
+    {
+        var speakers = new SqliteKnownSpeakerStore(_db);
+        var aliases = new SqliteSpeakerAliasStore(_db);
+        var overrides = new SqliteEventSpeakerOverrideStore(_db);
+
+        var alice = await speakers.CreateAsync("Alice");
+        await aliases.UpsertAsync("s1", "session_speaker_1", alice.Id);
+
+        // Override says "Bob" for this specific event — should win over the alias-resolved "Alice".
+        await overrides.UpsertAsync("s1", "evt1", "Bob", null);
+
+        var resolver = new SqliteSpeakerNameResolver(overrides, aliases, speakers, TimeSpan.Zero);
+
+        Assert.Equal("Bob", await resolver.ResolveDisplayNameAsync("s1", "session_speaker_1", "evt1"));
+        // Without an eventId, falls back to the alias -> "Alice".
+        Assert.Equal("Alice", await resolver.ResolveDisplayNameAsync("s1", "session_speaker_1"));
+        // Different event: no override, falls back to alias.
+        Assert.Equal("Alice", await resolver.ResolveDisplayNameAsync("s1", "session_speaker_1", "evt2"));
+    }
+
+    [Fact]
+    public async Task SpeakerNameResolver_NoOverride_FallsBackToAliasChain()
+    {
+        var speakers = new SqliteKnownSpeakerStore(_db);
+        var aliases = new SqliteSpeakerAliasStore(_db);
+        var overrides = new SqliteEventSpeakerOverrideStore(_db);
+
+        var joe = await speakers.CreateAsync("Joe");
+        await aliases.UpsertAsync("s1", "session_speaker_1", joe.Id);
+
+        var resolver = new SqliteSpeakerNameResolver(overrides, aliases, speakers, TimeSpan.Zero);
+
+        Assert.Equal("Joe", await resolver.ResolveDisplayNameAsync("s1", "session_speaker_1", "evt-no-override"));
+        Assert.Equal("Joe", await resolver.ResolveDisplayNameAsync("s1", joe.Id, "evt-no-override"));
+        Assert.Null(await resolver.ResolveDisplayNameAsync("s1", "mic", "evt-anything"));
+        Assert.Null(await resolver.ResolveDisplayNameAsync("s1", "speaker_unknown", "evt-anything"));
+    }
+
+    [Fact]
+    public async Task SpeakerNameResolver_WithNullOverrideStore_WorksLikeBeforeForAllCallers()
+    {
+        var speakers = new SqliteKnownSpeakerStore(_db);
+        var aliases = new SqliteSpeakerAliasStore(_db);
+
+        var joe = await speakers.CreateAsync("Joe");
+        await aliases.UpsertAsync("s1", "session_speaker_1", joe.Id);
+
+        // Old two-arg ctor — no override store.
+        var resolver = new SqliteSpeakerNameResolver(aliases, speakers, TimeSpan.Zero);
+
+        Assert.Equal("Joe", await resolver.ResolveDisplayNameAsync("s1", "session_speaker_1"));
+        Assert.Equal("Joe", await resolver.ResolveDisplayNameAsync("s1", "session_speaker_1", "evt1"));
+    }
 }

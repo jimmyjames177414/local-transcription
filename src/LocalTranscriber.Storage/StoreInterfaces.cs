@@ -17,12 +17,19 @@ public interface ISessionStore
 
     /// <summary>All sessions newest-first with per-session event counts and distinct speaker names.</summary>
     Task<IReadOnlyList<SessionSummary>> ListSummariesAsync(CancellationToken cancellationToken = default);
+
+    /// <summary>Marks a stopped session as recording again (clears ended_at, sets status to "recording").</summary>
+    Task ReopenAsync(string sessionId, CancellationToken cancellationToken = default);
 }
 
 public interface ITranscriptEventStore
 {
     Task InsertAsync(TranscriptEvent transcriptEvent, CancellationToken cancellationToken = default);
     Task<IReadOnlyList<TranscriptEvent>> ListBySessionAsync(string sessionId, CancellationToken cancellationToken = default);
+
+    /// <summary>Timestamp of the session's last event, or null when it has none. Used to backfill
+    /// <c>ended_at</c> for a session the app abandoned without a clean stop.</summary>
+    Task<DateTimeOffset?> GetLastTimestampAsync(string sessionId, CancellationToken cancellationToken = default);
 
     /// <summary>Deletes all events belonging to a session.</summary>
     Task DeleteBySessionAsync(string sessionId, CancellationToken cancellationToken = default);
@@ -54,4 +61,11 @@ public interface ISpeakerAliasStore
     Task UpsertAsync(string sessionId, string sessionSpeakerId, string knownSpeakerId, CancellationToken cancellationToken = default);
     Task<string?> ResolveAsync(string sessionId, string sessionSpeakerId, CancellationToken cancellationToken = default);
     Task<IReadOnlyList<(string SessionSpeakerId, string KnownSpeakerId)>> ListForSessionAsync(string sessionId, CancellationToken cancellationToken = default);
+}
+
+public interface IEventSpeakerOverrideStore
+{
+    Task UpsertAsync(string sessionId, string eventId, string displayName, string? knownSpeakerId, CancellationToken cancellationToken = default);
+    Task<string?> ResolveAsync(string sessionId, string eventId, CancellationToken cancellationToken = default);
+    Task<IReadOnlyList<(string EventId, string DisplayName)>> ListForSessionAsync(string sessionId, CancellationToken cancellationToken = default);
 }

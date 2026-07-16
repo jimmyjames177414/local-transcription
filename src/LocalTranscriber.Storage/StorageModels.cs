@@ -14,7 +14,10 @@ public sealed record SessionRecord(
 public sealed record SessionSummary(
     SessionRecord Session,
     int EventCount,
-    IReadOnlyList<string> SpeakerNames
+    IReadOnlyList<string> SpeakerNames,
+    // Timestamp of the last event, used to show a real duration for a session whose ended_at was
+    // never written (still recording, or abandoned before a clean stop). Null when it has no events.
+    DateTimeOffset? LastEventAt = null
 );
 
 public sealed record KnownSpeaker(

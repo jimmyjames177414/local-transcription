@@ -24,6 +24,7 @@ public sealed class RealTranscriptionEngine : ITranscriptionEngine, IAsyncDispos
     private readonly ITranscriptEventStore? _eventStore;
     private readonly IKnownSpeakerStore? _speakerStore;
     private readonly ISpeakerAliasStore? _aliasStore;
+    private readonly IEventSpeakerOverrideStore? _overrideStore;
     private readonly MinutesExportConfig? _minutesExport;
     private readonly string? _notesFolder;
     private readonly SpeakerLabeler _speakerLabeler;
@@ -78,6 +79,7 @@ public sealed class RealTranscriptionEngine : ITranscriptionEngine, IAsyncDispos
         ITranscriptEventStore? eventStore = null,
         IKnownSpeakerStore? speakerStore = null,
         ISpeakerAliasStore? aliasStore = null,
+        IEventSpeakerOverrideStore? overrideStore = null,
         MinutesExportConfig? minutesExport = null,
         string? notesFolder = null,
         TimeSpan? captureStaleThreshold = null)
@@ -90,6 +92,7 @@ public sealed class RealTranscriptionEngine : ITranscriptionEngine, IAsyncDispos
         _eventStore = eventStore;
         _speakerStore = speakerStore;
         _aliasStore = aliasStore;
+        _overrideStore = overrideStore;
         _minutesExport = minutesExport;
         _notesFolder = notesFolder;
         _speakerLabeler = new SpeakerLabeler(_diarization, _embedding, _recognition, AddWarning);
@@ -149,9 +152,16 @@ public sealed class RealTranscriptionEngine : ITranscriptionEngine, IAsyncDispos
 
             if (_sessionStore is not null)
             {
-                await _sessionStore.CreateAsync(new SessionRecord(
-                    options.SessionId, _startedAt.Value, null,
-                    options.OutputTextPath, options.OutputJsonlPath, "recording"), cancellationToken).ConfigureAwait(false);
+                if (options.ContinueExisting)
+                {
+                    await _sessionStore.ReopenAsync(options.SessionId, cancellationToken).ConfigureAwait(false);
+                }
+                else
+                {
+                    await _sessionStore.CreateAsync(new SessionRecord(
+                        options.SessionId, _startedAt.Value, null,
+                        options.OutputTextPath, options.OutputJsonlPath, "recording"), cancellationToken).ConfigureAwait(false);
+                }
             }
 
             try
@@ -588,6 +598,20 @@ public sealed class RealTranscriptionEngine : ITranscriptionEngine, IAsyncDispos
     {
         if (_speakerStore is null) return false;
         return await _speakerStore.RenameAsync(oldName, newName, cancellationToken).ConfigureAwait(false);
+    }
+
+    public async Task<bool> OverrideEventSpeakerAsync(string sessionId, string eventId, string newName, CancellationToken cancellationToken = default)
+    {
+        if (_overrideStore is null || string.IsNullOrWhiteSpace(sessionId) || string.IsNullOrWhiteSpace(eventId))
+            return false;
+
+        // Optionally link to a known speaker for metadata, but do NOT enroll voice or rename globally.
+        string? knownSpeakerId = null;
+        if (_speakerStore is not null)
+            knownSpeakerId = (await _speakerStore.GetByNameAsync(newName, cancellationToken).ConfigureAwait(false))?.Id;
+
+        await _overrideStore.UpsertAsync(sessionId, eventId, newName.Trim(), knownSpeakerId, cancellationToken).ConfigureAwait(false);
+        return true;
     }
 
     public async Task UpdateSessionTitleAsync(string sessionId, string? title, CancellationToken cancellationToken = default)

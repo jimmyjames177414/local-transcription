@@ -185,6 +185,15 @@ public partial class MeetingView : UserControl
     private void FollowLive_Click(object sender, System.Windows.RoutedEventArgs e)
         => AutoScrollBehavior.SetIsFollowing(TranscriptList, true);
 
+    private void SessionTitle_KeyDown(object sender, System.Windows.Input.KeyEventArgs e)
+    {
+        if (e.Key == System.Windows.Input.Key.Enter)
+        {
+            e.Handled = true;
+            System.Windows.Input.Keyboard.ClearFocus();
+        }
+    }
+
     private void ChatInput_KeyDown(object sender, System.Windows.Input.KeyEventArgs e)
     {
         if (e.Key == System.Windows.Input.Key.Enter && Shell is { } shell)

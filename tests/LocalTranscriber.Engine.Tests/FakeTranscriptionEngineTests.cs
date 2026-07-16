@@ -148,4 +148,49 @@ public class FakeTranscriptionEngineTests : IAsyncLifetime
         await Assert.ThrowsAsync<InvalidOperationException>(() => engine.StartAsync(MakeOptions()));
         await engine.StopAsync();
     }
+
+    [Fact]
+    public async Task StartAsync_ContinueExisting_UsesReopenInsteadOfCreate()
+    {
+        // Arrange: create an in-memory DB with a stopped session
+        var dbPath = Path.Combine(_dir, "continue-test.sqlite");
+        var db = new LocalTranscriber.Storage.SqliteDatabase(dbPath);
+        var sessionStore = new LocalTranscriber.Storage.SqliteSessionStore(db);
+        var eventStore = new LocalTranscriber.Storage.SqliteTranscriptEventStore(db);
+        var engine = new FakeTranscriptionEngine(sessionStore, eventStore);
+
+        string id = Guid.NewGuid().ToString("N");
+        string txt = Path.Combine(_dir, "continue.txt");
+        string jsonl = Path.Combine(_dir, "continue.jsonl");
+
+        await sessionStore.CreateAsync(new LocalTranscriber.Storage.SessionRecord(id, DateTimeOffset.UtcNow, null, txt, jsonl, "recording"));
+        await sessionStore.EndAsync(id, DateTimeOffset.UtcNow, "stopped");
+
+        // Act: start with ContinueExisting
+        var options = new TranscriptionSessionOptions
+        {
+            SessionId = id,
+            OutputTextPath = txt,
+            OutputJsonlPath = jsonl,
+            ContinueExisting = true
+        };
+        await engine.StartAsync(options);
+        await engine.StopAsync();
+
+        // Assert: still one session row, status stopped after stop
+        var session = await sessionStore.GetAsync(id);
+        Assert.NotNull(session);
+        Assert.Equal(id, session!.Id);
+        Assert.Equal("stopped", session.Status); // EndAsync re-stamps it
+    }
+
+    // ── OverrideEventSpeakerAsync ─────────────────────────────────────────────
+
+    [Fact]
+    public async Task FakeEngine_OverrideEventSpeakerAsync_ReturnsFalse()
+    {
+        await using var engine = new FakeTranscriptionEngine();
+        bool result = await engine.OverrideEventSpeakerAsync("s1", "evt1", "Bob");
+        Assert.False(result);
+    }
 }

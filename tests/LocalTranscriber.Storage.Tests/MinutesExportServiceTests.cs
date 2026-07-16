@@ -28,6 +28,8 @@ public class MinutesExportServiceTests : IDisposable
             => throw new NotSupportedException();
         public Task<IReadOnlyList<SessionSummary>> ListSummariesAsync(CancellationToken ct = default)
             => throw new NotSupportedException();
+        public Task ReopenAsync(string sessionId, CancellationToken ct = default)
+            => throw new NotSupportedException();
     }
 
     private sealed class FakeEventStore : ITranscriptEventStore
@@ -35,6 +37,8 @@ public class MinutesExportServiceTests : IDisposable
         public Task InsertAsync(TranscriptEvent e, CancellationToken ct = default) => Task.CompletedTask;
         public Task<IReadOnlyList<TranscriptEvent>> ListBySessionAsync(string sessionId, CancellationToken ct = default)
             => Task.FromResult<IReadOnlyList<TranscriptEvent>>(Array.Empty<TranscriptEvent>());
+        public Task<DateTimeOffset?> GetLastTimestampAsync(string sessionId, CancellationToken ct = default)
+            => Task.FromResult<DateTimeOffset?>(null);
         public Task DeleteBySessionAsync(string sessionId, CancellationToken ct = default)
             => throw new NotSupportedException();
         public Task<IReadOnlyList<string>> SearchSessionIdsAsync(string text, CancellationToken ct = default)

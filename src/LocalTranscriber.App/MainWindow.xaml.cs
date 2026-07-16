@@ -41,6 +41,7 @@ public partial class MainWindow : Window
         _configService = configService;
 
         SessionsPanel.LoadRequested += (record, events) => _ = OnLoadSessionRequestedAsync(record, events);
+        SessionsPanel.ContinueRequested += (record, events) => _ = OnContinueSessionRequestedAsync(record, events);
         AgentPanel.SaveNote = (markdown) => _notesService.WriteAsync(markdown);
         AgentPanel.ReadNote = () => _notesService.Content;
         AgentPanel.NotesFilePath = () => _notesService.FilePath;
@@ -54,10 +55,10 @@ public partial class MainWindow : Window
             Session.SelectedScreenIndex = (int)AppScreen.Settings;
         };
 
-        Session.ShowSpeakerRenameDialog = (currentName, suggestions) =>
+        Session.ShowSpeakerRenameDialog = request =>
         {
-            var dlg = new Views.Dialogs.SpeakerRenameDialog(currentName, suggestions) { Owner = this };
-            return dlg.ShowDialog() == true ? dlg.NewName : null;
+            var dlg = new Views.Dialogs.SpeakerRenameDialog(request) { Owner = this };
+            return dlg.ShowDialog() == true ? dlg.Result : null;
         };
 
         InitializeComponent();
@@ -129,6 +130,16 @@ public partial class MainWindow : Window
         // Reconnect-on-next-send grounds the assistant on the archive instead of the live file.
         await AgentPanel.StopVoiceIfRunningAsync();
         Session.LoadArchive(record, events);
+        _notesService.StartSession(record.Id);
+        Notes.Reload();
+    }
+
+    /// <summary>Loads a stopped session into the Meeting screen ready for continuation.</summary>
+    private async Task OnContinueSessionRequestedAsync(LocalTranscriber.Storage.SessionRecord record,
+        IReadOnlyList<LocalTranscriber.Shared.TranscriptEvent> events)
+    {
+        await AgentPanel.StopVoiceIfRunningAsync();
+        Session.LoadForContinuation(record, events);
         _notesService.StartSession(record.Id);
         Notes.Reload();
     }

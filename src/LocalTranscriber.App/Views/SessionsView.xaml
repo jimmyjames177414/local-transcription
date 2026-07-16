@@ -227,6 +227,9 @@
                         <Button Content="Load session" Style="{StaticResource PrimaryButtonStyle}" Padding="15,7" FontSize="11.5"
                                 Command="{Binding SessionsPanel.LoadCommand}"
                                 ToolTip="Open in the Meeting screen for review — search it and ask the assistant about it" />
+                        <Button Content="Continue" Style="{StaticResource SubtleButtonStyle}" Padding="15,7" FontSize="11.5" Margin="7,0,0,0"
+                                Command="{Binding SessionsPanel.ContinueCommand}"
+                                ToolTip="Resume this session — new recording appends to the existing transcript" />
                         <Button Content="Open folder" Style="{StaticResource SubtleButtonStyle}" Padding="12,7" FontSize="11.5" Margin="7,0,0,0"
                                 Command="{Binding SessionsPanel.OpenFolderCommand}" />
                         <Button Content="Export ▾" Style="{StaticResource SubtleButtonStyle}" Padding="12,7" FontSize="11.5" Margin="7,0,0,0"

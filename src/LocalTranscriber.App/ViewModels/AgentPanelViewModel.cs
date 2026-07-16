@@ -544,6 +544,7 @@ public sealed class AgentPanelViewModel : ObservableObject
     {
         try
         {
+            AppLog.Info("agent", $"StartVoice: provider={SelectedProvider}, mode={SelectedVoiceMode}.");
             PillState = AgentPillState.Connecting;
             var config = _configService.Load();
 
@@ -578,6 +579,7 @@ public sealed class AgentPanelViewModel : ObservableObject
                 notesFilePath: NotesFilePath?.Invoke())).ConfigureAwait(true);
             if (resolution.Session is null)
             {
+                AppLog.Warn("agent", $"StartVoice: no session created — {resolution.Notice ?? "Voice unavailable."}");
                 StatusText = resolution.Notice ?? "Voice unavailable.";
                 PillState = AgentPillState.Off;
                 return;
@@ -602,9 +604,11 @@ public sealed class AgentPanelViewModel : ObservableObject
             {
                 StatusText = $"Voice started ({SelectedVoiceMode}).";
             }
+            AppLog.Info("agent", $"StartVoice: started — {StatusText}");
         }
         catch (Exception ex)
         {
+            AppLog.Warn("agent", $"StartVoice failed: {ex.Message}");
             StatusText = $"Start voice failed: {ex.Message}";
             _voice = null;
             PillState = AgentPillState.Error;
@@ -693,6 +697,7 @@ public sealed class AgentPanelViewModel : ObservableObject
     /// <summary>Called from the Talk button / Space key down.</summary>
     public void VoicePushToTalkDown()
     {
+        AppLog.Info("agent", "Push-to-talk down.");
         _holdPending = true;
         if (_voice is null)
         {
@@ -715,6 +720,7 @@ public sealed class AgentPanelViewModel : ObservableObject
         }
         else
         {
+            AppLog.Info("agent", "Push-to-talk released before connect completed — no capture started.");
             HoldPhase = HoldToTalkPhase.Idle;
         }
     }
@@ -722,6 +728,7 @@ public sealed class AgentPanelViewModel : ObservableObject
     /// <summary>Called from the Talk button / Space key up.</summary>
     public void VoicePushToTalkUp()
     {
+        AppLog.Info("agent", "Push-to-talk up.");
         _holdPending = false;
         if (_voice is null)
         {

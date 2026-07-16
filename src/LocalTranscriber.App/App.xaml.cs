@@ -63,7 +63,32 @@ public partial class App : Application
         _host.StartAsync().GetAwaiter().GetResult();
         _host.Services.GetRequiredService<EngineIpcServer>().Start();
 
+        // Repair any session the app previously abandoned without a clean stop (crash / force-close /
+        // OS shutdown) — nothing is recording yet, so every "recording" row is an orphan. Left alone
+        // it would show as a "1m" stub even though the transcript is fully on disk. Never break
+        // startup over this.
+        RecoverOrphanedSessions();
+
         _host.Services.GetRequiredService<MainWindow>().Show();
+    }
+
+    private void RecoverOrphanedSessions()
+    {
+        try
+        {
+            var db = _host!.Services.GetRequiredService<SqliteDatabase>();
+            var recovery = new SessionRecoveryService(new SqliteSessionStore(db), new SqliteTranscriptEventStore(db));
+            var recovered = recovery.RecoverOrphanedSessionsAsync().GetAwaiter().GetResult();
+            if (recovered.Count > 0)
+            {
+                LocalTranscriber.Shared.AppLog.Info("app",
+                    $"Recovered {recovered.Count} interrupted session(s): {string.Join(", ", recovered)}");
+            }
+        }
+        catch (Exception ex)
+        {
+            LocalTranscriber.Shared.AppLog.Warn("app", $"Session recovery failed: {ex.Message}");
+        }
     }
 
     protected override void OnExit(ExitEventArgs e)

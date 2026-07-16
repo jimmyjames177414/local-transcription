@@ -345,28 +345,51 @@
             <Setter.Value>
                 <ControlTemplate TargetType="ComboBox">
                     <Grid>
-                        <Border x:Name="Bd"
-                                Background="{TemplateBinding Background}"
-                                BorderBrush="{TemplateBinding BorderBrush}"
-                                BorderThickness="{TemplateBinding BorderThickness}"
-                                CornerRadius="8">
-                            <Grid Margin="{TemplateBinding Padding}">
-                                <Grid.ColumnDefinitions>
-                                    <ColumnDefinition Width="*" />
-                                    <ColumnDefinition Width="Auto" />
-                                </Grid.ColumnDefinitions>
-                                <ContentPresenter Grid.Column="0"
-                                                  Content="{TemplateBinding SelectionBoxItem}"
-                                                  ContentTemplate="{TemplateBinding SelectionBoxItemTemplate}"
-                                                  ContentStringFormat="{TemplateBinding SelectionBoxItemStringFormat}"
-                                                  VerticalAlignment="Center"
-                                                  IsHitTestVisible="False" />
-                                <TextBlock Grid.Column="1" Text="▾" FontSize="13"
-                                           Foreground="{DynamicResource Brush.Text.Faint}"
-                                           VerticalAlignment="Center" Margin="8,0,2,0"
-                                           IsHitTestVisible="False" />
-                            </Grid>
-                        </Border>
+                        <!-- ToggleButton is the hit-testable element that flips IsDropDownOpen (which PART_Popup binds to). -->
+                        <ToggleButton x:Name="PART_ToggleButton"
+                                      ClickMode="Press"
+                                      Focusable="False"
+                                      IsChecked="{Binding IsDropDownOpen, Mode=TwoWay, RelativeSource={RelativeSource TemplatedParent}}">
+                            <ToggleButton.Template>
+                                <!-- Transparent template: no default chrome, just render the ComboBox chrome below. -->
+                                <ControlTemplate TargetType="ToggleButton">
+                                    <ContentPresenter />
+                                </ControlTemplate>
+                            </ToggleButton.Template>
+                            <Border x:Name="Bd"
+                                    Background="{TemplateBinding Background}"
+                                    BorderBrush="{TemplateBinding BorderBrush}"
+                                    BorderThickness="{TemplateBinding BorderThickness}"
+                                    CornerRadius="8">
+                                <Grid Margin="{TemplateBinding Padding}">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="*" />
+                                        <ColumnDefinition Width="Auto" />
+                                    </Grid.ColumnDefinitions>
+                                    <ContentPresenter x:Name="ContentSite" Grid.Column="0"
+                                                      Content="{TemplateBinding SelectionBoxItem}"
+                                                      ContentTemplate="{TemplateBinding SelectionBoxItemTemplate}"
+                                                      ContentStringFormat="{TemplateBinding SelectionBoxItemStringFormat}"
+                                                      VerticalAlignment="Center"
+                                                      IsHitTestVisible="False" />
+                                    <TextBlock Grid.Column="1" Text="▾" FontSize="13"
+                                               Foreground="{DynamicResource Brush.Text.Faint}"
+                                               VerticalAlignment="Center" Margin="8,0,2,0"
+                                               IsHitTestVisible="False" />
+                                </Grid>
+                            </Border>
+                        </ToggleButton>
+                        <!-- Editable entry: visible only when IsEditable=True; sits above the toggle so it's typeable. -->
+                        <TextBox x:Name="PART_EditableTextBox"
+                                 Visibility="Hidden"
+                                 Margin="10,5,30,5"
+                                 VerticalAlignment="Center"
+                                 VerticalContentAlignment="Center"
+                                 Background="Transparent"
+                                 BorderThickness="0"
+                                 Foreground="{TemplateBinding Foreground}"
+                                 CaretBrush="{TemplateBinding Foreground}"
+                                 IsReadOnly="{TemplateBinding IsReadOnly}" />
                         <Popup x:Name="PART_Popup"
                                Placement="Bottom"
                                IsOpen="{TemplateBinding IsDropDownOpen}"
@@ -387,6 +410,10 @@
                         </Popup>
                     </Grid>
                     <ControlTemplate.Triggers>
+                        <Trigger Property="IsEditable" Value="True">
+                            <Setter TargetName="ContentSite" Property="Visibility" Value="Hidden" />
+                            <Setter TargetName="PART_EditableTextBox" Property="Visibility" Value="Visible" />
+                        </Trigger>
                         <Trigger Property="IsDropDownOpen" Value="True">
                             <Setter TargetName="Bd" Property="BorderBrush" Value="{DynamicResource Brush.Accent}" />
                         </Trigger>

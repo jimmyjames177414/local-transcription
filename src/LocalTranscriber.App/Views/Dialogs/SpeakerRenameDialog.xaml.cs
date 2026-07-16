@@ -1,25 +1,31 @@
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
-using System.Windows.Media;
+using LocalTranscriber.App.ViewModels;
 
 namespace LocalTranscriber.App.Views.Dialogs;
 
 public partial class SpeakerRenameDialog : Window
 {
-    public string NewName { get; private set; } = "";
+    public SpeakerRenameResult? Result { get; private set; }
 
-    public SpeakerRenameDialog(string currentName, IReadOnlyList<string> suggestions)
+    public SpeakerRenameDialog(SpeakerRenameRequest request)
     {
         InitializeComponent();
-        PromptText.Text = $"Who is \"{currentName}\"?";
+        PromptText.Text = $"Who is \"{request.CurrentName}\"?";
+
+        string allLabel = request.OccurrenceCount == 1
+            ? $"Every \"{request.CurrentName}\" line (1 line)"
+            : $"Every \"{request.CurrentName}\" line ({request.OccurrenceCount} lines)";
+        ScopeAllLabel.Text = allLabel;
+
         NameBox.Focus();
         MouseLeftButtonDown += (_, _) => { try { DragMove(); } catch { } };
 
-        if (suggestions.Count > 0)
+        if (request.Suggestions.Count > 0)
         {
             SuggestionsPanel.Visibility = Visibility.Visible;
-            foreach (string name in suggestions)
+            foreach (string name in request.Suggestions)
             {
                 var chip = new Button
                 {
@@ -36,11 +42,15 @@ public partial class SpeakerRenameDialog : Window
         }
     }
 
+    private RenameScope SelectedScope =>
+        ScopeOne.IsChecked == true ? RenameScope.ThisOne : RenameScope.All;
+
     private void Chip_Click(object sender, RoutedEventArgs e)
     {
         if (sender is Button btn && btn.Tag is string name)
         {
-            NewName = name;
+            // Chips always apply to all lines (they're quick-pick for a known person).
+            Result = new SpeakerRenameResult(name, RenameScope.All);
             DialogResult = true;
             Close();
         }
@@ -50,7 +60,7 @@ public partial class SpeakerRenameDialog : Window
     {
         string name = NameBox.Text.Trim();
         if (name.Length == 0) return;
-        NewName = name;
+        Result = new SpeakerRenameResult(name, SelectedScope);
         DialogResult = true;
         Close();
     }

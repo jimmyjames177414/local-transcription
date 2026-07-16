@@ -25,9 +25,26 @@
             <TextBox x:Name="NameBox" Style="{StaticResource TextInputStyle}"
                      FontSize="12" Padding="10,7"
                      KeyDown="NameBox_KeyDown" />
+
+            <!-- Scope choice: always shown for non-mic speakers -->
+            <StackPanel Margin="0,12,0,0">
+                <TextBlock Text="Apply to:" FontSize="10.5"
+                           Foreground="{StaticResource Brush.Text.Hint}" Margin="0,0,0,6" />
+                <RadioButton x:Name="ScopeAll" GroupName="Scope" IsChecked="True"
+                             FontSize="11" Foreground="{StaticResource Brush.Text.Body}"
+                             Margin="0,0,0,4">
+                    <RadioButton.Content>
+                        <TextBlock x:Name="ScopeAllLabel" FontSize="11" />
+                    </RadioButton.Content>
+                </RadioButton>
+                <RadioButton x:Name="ScopeOne" GroupName="Scope"
+                             Content="Just this line"
+                             FontSize="11" Foreground="{StaticResource Brush.Text.Body}" />
+            </StackPanel>
+
             <TextBlock Text="This name is saved to speaker memory and applied to future sessions."
                        FontSize="10.5" Foreground="{StaticResource Brush.Text.Hint}"
-                       TextWrapping="Wrap" Margin="0,8,0,0" />
+                       TextWrapping="Wrap" Margin="0,10,0,0" />
             <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,14,0,0">
                 <Button Content="Cancel" Style="{StaticResource SubtleButtonStyle}"
                         Padding="16,7" IsCancel="True" />

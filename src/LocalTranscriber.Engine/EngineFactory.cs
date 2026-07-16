@@ -23,6 +23,7 @@ public static class EngineFactory
         var speakerStore = new SqliteKnownSpeakerStore(db);
         var embeddingStore = new SqliteSpeakerEmbeddingStore(db);
         var aliasStore = new SqliteSpeakerAliasStore(db);
+        var overrideStore = new SqliteEventSpeakerOverrideStore(db);
 
         return new RealTranscriptionEngine(
             transcription: new WhisperCppTranscriptionService(),
@@ -37,8 +38,25 @@ public static class EngineFactory
             eventStore: new SqliteTranscriptEventStore(db),
             speakerStore: speakerStore,
             aliasStore: aliasStore,
+            overrideStore: overrideStore,
             minutesExport: config.MinutesExport,
             notesFolder: config.Agent.AgentOutputFolder);
+    }
+
+    /// <summary>
+    /// Builds session options for continuing an existing stopped session.
+    /// Reuses the session's id and output file paths so new turns append to the original transcript.
+    /// </summary>
+    public static TranscriptionSessionOptions CreateContinuationOptions(AppConfig config, SessionRecord existing)
+    {
+        var baseOptions = CreateSessionOptions(config);
+        return baseOptions with
+        {
+            SessionId = existing.Id,
+            OutputTextPath = existing.OutputTextPath,
+            OutputJsonlPath = existing.OutputJsonlPath,
+            ContinueExisting = true
+        };
     }
 
     public static TranscriptionSessionOptions CreateSessionOptions(AppConfig config, string? outputFolder = null, bool? mic = null, bool? system = null)

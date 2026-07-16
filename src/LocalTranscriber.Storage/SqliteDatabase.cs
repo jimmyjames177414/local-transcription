@@ -139,6 +139,15 @@ public sealed class SqliteDatabase
             created_at TEXT NOT NULL,
             PRIMARY KEY (session_id, session_speaker_id)
         );
+
+        CREATE TABLE IF NOT EXISTS event_speaker_overrides (
+            session_id TEXT NOT NULL,
+            event_id TEXT NOT NULL,
+            display_name TEXT NOT NULL,
+            known_speaker_id TEXT,
+            created_at TEXT NOT NULL,
+            PRIMARY KEY (session_id, event_id)
+        );
         """;
 
     /// <summary>

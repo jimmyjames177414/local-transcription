@@ -15,6 +15,7 @@ public sealed class TranscriptRowViewModel : INotifyPropertyChanged
     public TranscriptRowViewModel(TranscriptEvent e, double uncertainBelow)
     {
         Time = e.Timestamp.ToLocalTime().ToString("HH:mm:ss");
+        EventId = e.Id;
         IsMe = e.Source == AudioSourceType.Microphone;
         SpeakerId = e.Speaker.SpeakerId;
         _speakerName = e.Speaker.DisplayName;
@@ -31,6 +32,7 @@ public sealed class TranscriptRowViewModel : INotifyPropertyChanged
         PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(name));
 
     public string Time { get; }
+    public string EventId { get; }
     public string SpeakerId { get; }
     public bool IsMe { get; }
     public bool IsUncertain { get; }

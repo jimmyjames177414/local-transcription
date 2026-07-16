@@ -19,8 +19,11 @@
             <RowDefinition Height="*" />
         </Grid.RowDefinitions>
 
+        <!-- Row 0: review banner + continuation banner (stacked, mutually exclusive) -->
+        <StackPanel Grid.Row="0">
+
         <!-- Review banner (4l): shown while viewing an archived session -->
-        <Border Grid.Row="0" Background="{StaticResource Brush.Accent.Bg}"
+        <Border Background="{StaticResource Brush.Accent.Bg}"
                 BorderBrush="{StaticResource Brush.Accent.Border}" BorderThickness="0,0,0,1" Padding="16,7"
                 Visibility="{Binding Session.IsReviewing, Converter={StaticResource BoolToVisibility}}">
             <Grid>
@@ -38,6 +41,28 @@
                         Command="{Binding Session.StartCommand}" Margin="7,0,0,0" />
             </Grid>
         </Border>
+
+        <!-- Continuation banner: shown when a session is loaded for continuation but not yet recording -->
+        <Border Background="{StaticResource Brush.Accent.Bg}"
+                BorderBrush="{StaticResource Brush.Accent.Border}" BorderThickness="0,0,0,1" Padding="16,7"
+                Visibility="{Binding Session.IsContinuing, Converter={StaticResource BoolToVisibility}}">
+            <Grid>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="Auto" />
+                    <ColumnDefinition Width="Auto" />
+                </Grid.ColumnDefinitions>
+                <TextBlock Grid.Column="0" Text="{Binding Session.ContinueBannerText}" FontSize="11.5"
+                           Foreground="{StaticResource Brush.Text.Body}" VerticalAlignment="Center" TextTrimming="CharacterEllipsis" />
+                <Button Grid.Column="1" Content="✕ Cancel" Style="{StaticResource SubtleButtonStyle}" Padding="13,5" FontSize="11"
+                        Command="{Binding Session.CancelContinuationCommand}" Margin="10,0,0,0" />
+                <Button Grid.Column="2" Content="● Start recording" Style="{StaticResource PrimaryButtonStyle}"
+                        Background="{StaticResource Brush.Rec.Gradient}" Padding="13,5" FontSize="11"
+                        Command="{Binding Session.StartCommand}" Margin="7,0,0,0" />
+            </Grid>
+        </Border>
+
+        </StackPanel>
 
         <Grid Grid.Row="1">
         <Grid.ColumnDefinitions>
@@ -68,6 +93,7 @@
                         <ColumnDefinition Width="Auto" />
                         <ColumnDefinition Width="*" />
                         <ColumnDefinition Width="Auto" />
+                        <ColumnDefinition Width="Auto" />
                     </Grid.ColumnDefinitions>
                     <TextBlock Grid.Column="0" Text="TRANSCRIPT" Style="{StaticResource PanelLabelStyle}" VerticalAlignment="Center" />
                     <!-- Inline session title: only visible while a session is active -->
@@ -76,7 +102,13 @@
                         <TextBox Style="{StaticResource TextInputStyle}"
                                  Text="{Binding Session.SessionTitle, UpdateSourceTrigger=PropertyChanged}"
                                  FontSize="10.5" Padding="7,3" MinHeight="0"
-                                 MaxLength="80" />
+                                 MaxLength="80"
+                                 KeyDown="SessionTitle_KeyDown" />
+                        <TextBlock Text="✓ saved" FontSize="10" FontStyle="Italic"
+                                   Foreground="{StaticResource Brush.Privacy.Local}"
+                                   HorizontalAlignment="Right" VerticalAlignment="Center"
+                                   Margin="0,0,6,0" IsHitTestVisible="False"
+                                   Visibility="{Binding Session.TitleSavedFlash, Converter={StaticResource BoolToVisibility}}" />
                         <TextBlock Text="Session title…" FontSize="10.5" Foreground="{StaticResource Brush.Text.Hint}"
                                    Margin="9,0,0,0" VerticalAlignment="Center" IsHitTestVisible="False">
                             <TextBlock.Style>
@@ -91,7 +123,24 @@
                             </TextBlock.Style>
                         </TextBlock>
                     </Grid>
-                    <Button Grid.Column="2" Content="transcripts ↗" Click="OpenTranscriptsFolder_Click" Cursor="Hand"
+                    <Button Grid.Column="2" Padding="4,0" Margin="0,0,2,0"
+                            Background="Transparent" BorderThickness="0" FontSize="10"
+                            Command="{Binding Session.CopyTranscriptCommand}"
+                            ToolTip="Copy transcript to clipboard">
+                        <Button.Style>
+                            <Style TargetType="Button">
+                                <Setter Property="Foreground" Value="{StaticResource Brush.Text.Faint}" />
+                                <Setter Property="Content" Value="⎘ Copy" />
+                                <Style.Triggers>
+                                    <DataTrigger Binding="{Binding Session.TranscriptCopiedFlash}" Value="True">
+                                        <Setter Property="Content" Value="✓ Copied" />
+                                        <Setter Property="Foreground" Value="{StaticResource Brush.Privacy.Local}" />
+                                    </DataTrigger>
+                                </Style.Triggers>
+                            </Style>
+                        </Button.Style>
+                    </Button>
+                    <Button Grid.Column="3" Content="transcripts ↗" Click="OpenTranscriptsFolder_Click" Cursor="Hand"
                             Background="Transparent" BorderThickness="0" Foreground="{StaticResource Brush.Text.Faint}"
                             FontSize="10" Padding="4,0" />
                 </Grid>
@@ -103,6 +152,7 @@
                 <Grid>
                     <Grid.ColumnDefinitions>
                         <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="Auto" />
                         <ColumnDefinition Width="Auto" />
                         <ColumnDefinition Width="Auto" />
                         <ColumnDefinition Width="Auto" />
@@ -130,6 +180,21 @@
                             Command="{Binding Session.PrevMatchCommand}" ToolTip="Previous match" />
                     <Button Grid.Column="3" Content="▼" FontSize="8" Padding="6,4" Style="{StaticResource SubtleButtonStyle}"
                             Command="{Binding Session.NextMatchCommand}" Margin="3,0,0,0" ToolTip="Next match" />
+                    <Button Grid.Column="4" Padding="6,4" Margin="3,0,0,0"
+                            Command="{Binding Session.CopyTranscriptCommand}"
+                            ToolTip="Copy transcript to clipboard">
+                        <Button.Style>
+                            <Style TargetType="Button" BasedOn="{StaticResource SubtleButtonStyle}">
+                                <Setter Property="Content" Value="⎘ Copy" />
+                                <Style.Triggers>
+                                    <DataTrigger Binding="{Binding Session.TranscriptCopiedFlash}" Value="True">
+                                        <Setter Property="Content" Value="✓ Copied" />
+                                        <Setter Property="Foreground" Value="{StaticResource Brush.Privacy.Local}" />
+                                    </DataTrigger>
+                                </Style.Triggers>
+                            </Style>
+                        </Button.Style>
+                    </Button>
                 </Grid>
             </Border>
 
@@ -215,38 +280,30 @@
                     </ListBox>
                 </Border>
 
-                <!-- Follow-live chip -->
+                <!-- Follow-live chip: only visible when recording AND user has scrolled away from the bottom -->
                 <Button HorizontalAlignment="Center" VerticalAlignment="Bottom" Margin="0,0,0,10"
                         Click="FollowLive_Click" Cursor="Hand"
-                        Background="Transparent" BorderThickness="0" Padding="0"
-                        Visibility="{Binding Session.IsRecording, Converter={StaticResource BoolToVisibility}}">
+                        Background="Transparent" BorderThickness="0" Padding="0">
+                    <Button.Style>
+                        <Style TargetType="Button">
+                            <Setter Property="Visibility" Value="Collapsed" />
+                            <Style.Triggers>
+                                <MultiDataTrigger>
+                                    <MultiDataTrigger.Conditions>
+                                        <Condition Binding="{Binding Session.IsRecording}" Value="True" />
+                                        <Condition Binding="{Binding Path=(behaviors:AutoScrollBehavior.IsFollowing), ElementName=TranscriptList}" Value="False" />
+                                    </MultiDataTrigger.Conditions>
+                                    <Setter Property="Visibility" Value="Visible" />
+                                </MultiDataTrigger>
+                            </Style.Triggers>
+                        </Style>
+                    </Button.Style>
                     <Border CornerRadius="99" Background="#F0292C31" BorderBrush="{StaticResource Brush.Stroke.Hi}"
                             BorderThickness="1" Padding="11,3">
                         <StackPanel Orientation="Horizontal">
-                            <Ellipse Width="5" Height="5" VerticalAlignment="Center">
-                                <Ellipse.Style>
-                                    <Style TargetType="Ellipse">
-                                        <Setter Property="Fill" Value="{StaticResource Brush.Privacy.Local}" />
-                                        <Style.Triggers>
-                                            <DataTrigger Binding="{Binding Path=(behaviors:AutoScrollBehavior.IsFollowing), ElementName=TranscriptList}" Value="False">
-                                                <Setter Property="Fill" Value="{StaticResource Brush.Text.Faint}" />
-                                            </DataTrigger>
-                                        </Style.Triggers>
-                                    </Style>
-                                </Ellipse.Style>
-                            </Ellipse>
-                            <TextBlock FontSize="10" Foreground="{StaticResource Brush.Nav.Inactive}" Margin="7,0,0,0">
-                                <TextBlock.Style>
-                                    <Style TargetType="TextBlock">
-                                        <Setter Property="Text" Value="Following live — scroll up to pause" />
-                                        <Style.Triggers>
-                                            <DataTrigger Binding="{Binding Path=(behaviors:AutoScrollBehavior.IsFollowing), ElementName=TranscriptList}" Value="False">
-                                                <Setter Property="Text" Value="Paused — click to follow live" />
-                                            </DataTrigger>
-                                        </Style.Triggers>
-                                    </Style>
-                                </TextBlock.Style>
-                            </TextBlock>
+                            <Ellipse Width="5" Height="5" VerticalAlignment="Center" Fill="{StaticResource Brush.Text.Faint}" />
+                            <TextBlock FontSize="10" Foreground="{StaticResource Brush.Nav.Inactive}" Margin="7,0,0,0"
+                                       Text="Paused — click to follow live" />
                         </StackPanel>
                     </Border>
                 </Button>
@@ -316,13 +373,30 @@
                             <ColumnDefinition Width="Auto" />
                         </Grid.ColumnDefinitions>
                         <StackPanel Grid.Column="0" Orientation="Horizontal">
+                            <!-- Idle: only visible when not recording -->
                             <Button Content="● Start" Style="{StaticResource PrimaryButtonStyle}" Padding="14,6"
                                     Background="{StaticResource Brush.Rec.Gradient}" Margin="0,0,8,0"
-                                    Command="{Binding Session.StartCommand}" />
-                            <Button Content="❚❚ Pause" Style="{StaticResource NeutralButtonStyle}" Margin="0,0,8,0" Command="{Binding Session.PauseCommand}" />
-                            <Button Content="▶" Style="{StaticResource NeutralButtonStyle}" Margin="0,0,8,0" Command="{Binding Session.ResumeCommand}"
-                                    ToolTip="Resume" />
-                            <Button Content="■ Stop" Style="{StaticResource DangerButtonStyle}" Command="{Binding Session.StopCommand}" />
+                                    Command="{Binding Session.StartCommand}"
+                                    Visibility="{Binding Session.IsRecording, Converter={StaticResource InverseBoolToVisibility}}" />
+                            <!-- Live: Pause ↔ Resume, only visible while a session is active -->
+                            <Button Padding="14,6" Margin="0,0,8,0"
+                                    Command="{Binding Session.ToggleTransportCommand}"
+                                    Visibility="{Binding Session.IsRecording, Converter={StaticResource BoolToVisibility}}">
+                                <Button.Style>
+                                    <Style TargetType="Button" BasedOn="{StaticResource NeutralButtonStyle}">
+                                        <Setter Property="Content" Value="❚❚ Pause" />
+                                        <Style.Triggers>
+                                            <DataTrigger Binding="{Binding Session.IsPausedTransport}" Value="True">
+                                                <Setter Property="Content" Value="▶ Resume" />
+                                            </DataTrigger>
+                                        </Style.Triggers>
+                                    </Style>
+                                </Button.Style>
+                            </Button>
+                            <!-- Stop: only visible while a session is active -->
+                            <Button Content="■ Stop" Style="{StaticResource DangerButtonStyle}"
+                                    Command="{Binding Session.StopCommand}"
+                                    Visibility="{Binding Session.IsRecording, Converter={StaticResource BoolToVisibility}}" />
                         </StackPanel>
                         <TextBlock Grid.Column="2" Text="{Binding Session.SourcesSummary}" Style="{StaticResource MonoTextStyle}"
                                    FontSize="9.5" VerticalAlignment="Center" />

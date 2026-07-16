@@ -26,7 +26,7 @@ public sealed class SessionListItemViewModel
         DayGroup = started.Date == DateTime.Today ? "TODAY"
             : started.Date == DateTime.Today.AddDays(-1) ? "YESTERDAY"
             : started.ToString("MMMM d, yyyy").ToUpperInvariant();
-        TimeAndDuration = $"{started:HH:mm} · {FormatDuration(s)}";
+        TimeAndDuration = $"{started:HH:mm} · {FormatDuration(s, summary.LastEventAt)}";
 
         Participants = summary.SpeakerNames.Take(4)
             .Select(n => new ParticipantChip(n, SpeakerPalette.GetBrushForName(n)))
@@ -55,9 +55,11 @@ public sealed class SessionListItemViewModel
     public long SizeBytes { get; }
     public string FileSizeText { get; }
 
-    public static string FormatDuration(SessionRecord s)
+    public static string FormatDuration(SessionRecord s, DateTimeOffset? lastEventAt = null)
     {
-        var end = s.EndedAt ?? s.StartedAt;
+        // Prefer the real end; fall back to the last event for a session whose ended_at was never
+        // written (still recording, or abandoned before a clean stop) so it never collapses to "1m".
+        var end = s.EndedAt ?? lastEventAt ?? s.StartedAt;
         var span = end - s.StartedAt;
         if (span < TimeSpan.Zero)
         {
@@ -94,6 +96,7 @@ public sealed class SessionsViewModel : ObservableObject
     private readonly ConfigService _configService;
     private readonly ISessionStore _sessions;
     private readonly ITranscriptEventStore _events;
+    private readonly ISpeakerNameResolver _nameResolver;
     private readonly Func<bool> _isRecording;
     private readonly DispatcherTimer _searchDebounce;
 
@@ -109,7 +112,8 @@ public sealed class SessionsViewModel : ObservableObject
     private string _editTitle = "";
 
     public SessionsViewModel(ConfigService? configService = null, Func<bool>? isRecording = null,
-        ISessionStore? sessions = null, ITranscriptEventStore? events = null)
+        ISessionStore? sessions = null, ITranscriptEventStore? events = null,
+        ISpeakerNameResolver? nameResolver = null)
     {
         _configService = configService ?? new ConfigService();
         _isRecording = isRecording ?? (() => false);
@@ -117,6 +121,11 @@ public sealed class SessionsViewModel : ObservableObject
         var db = new SqliteDatabase(config.DatabasePath);
         _sessions = sessions ?? new SqliteSessionStore(db);
         _events = events ?? new SqliteTranscriptEventStore(db);
+        // Resolves speakers renamed mid-meeting to their final name at read time, so a saved review
+        // shows the rename retroactively on every line (early "Speaker 1" lines included).
+        // The override store also handles "just this line" per-event corrections.
+        _nameResolver = nameResolver
+            ?? new SqliteSpeakerNameResolver(new SqliteEventSpeakerOverrideStore(db), new SqliteSpeakerAliasStore(db), new SqliteKnownSpeakerStore(db));
 
         _searchDebounce = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(250) };
         _searchDebounce.Tick += async (_, _) =>
@@ -146,10 +155,15 @@ public sealed class SessionsViewModel : ObservableObject
         });
         CommitRenameCommand = new AsyncRelayCommand(CommitRenameAsync, () => !string.IsNullOrWhiteSpace(EditTitle));
         CancelRenameCommand = new RelayCommand(() => IsRenaming = false);
+        ContinueCommand = new AsyncRelayCommand(ContinueSelectedAsync,
+            () => Selected is not null && !_isRecording() && Selected.Session.Status != "recording");
     }
 
     /// <summary>Raised when the user loads a session for review (full events included).</summary>
     public event Action<SessionRecord, IReadOnlyList<TranscriptEvent>>? LoadRequested;
+
+    /// <summary>Raised when the user wants to continue a session (append new recording to it).</summary>
+    public event Action<SessionRecord, IReadOnlyList<TranscriptEvent>>? ContinueRequested;
 
     /// <summary>Raised when the user asks to delete a session; the shell shows the confirm dialog.</summary>
     public event Action<SessionListItemViewModel>? DeleteRequested;
@@ -161,6 +175,7 @@ public sealed class SessionsViewModel : ObservableObject
 
     public AsyncRelayCommand RefreshCommand { get; }
     public AsyncRelayCommand LoadCommand { get; }
+    public AsyncRelayCommand ContinueCommand { get; }
     public RelayCommand OpenFolderCommand { get; }
     public AsyncRelayCommand ExportCommand { get; }
     public RelayCommand DeleteCommand { get; }
@@ -211,6 +226,7 @@ public sealed class SessionsViewModel : ObservableObject
             {
                 IsRenaming = false;
                 LoadCommand.RaiseCanExecuteChanged();
+                ContinueCommand.RaiseCanExecuteChanged();
                 ExportCommand.RaiseCanExecuteChanged();
                 OnPropertyChanged(nameof(HasSelection));
                 OnPropertyChanged(nameof(SelectedTitle));
@@ -347,9 +363,9 @@ public sealed class SessionsViewModel : ObservableObject
             string when = started.Date == DateTime.Today ? "Today" : started.ToString("yyyy-MM-dd");
             string range = s.EndedAt is { } ended ? $"{started:HH:mm}–{ended.ToLocalTime():HH:mm}" : $"{started:HH:mm}";
             string files = ".txt · .jsonl" + (item.HasNotes ? " · notes.md" : "");
-            MetaText = $"{when} {range} · {SessionListItemViewModel.FormatDuration(s)} · #{s.Id[..Math.Min(8, s.Id.Length)]} · {files}";
+            MetaText = $"{when} {range} · {SessionListItemViewModel.FormatDuration(s, item.Summary.LastEventAt)} · #{s.Id[..Math.Min(8, s.Id.Length)]} · {files}";
 
-            var events = await _events.ListBySessionAsync(s.Id);
+            var events = await ResolveNamesAsync(s.Id, await _events.ListBySessionAsync(s.Id));
             foreach (var e in events.Take(PreviewRowCount))
             {
                 PreviewRows.Add(new TranscriptRowViewModel(e, config.SpeakerMatchThreshold));
@@ -384,13 +400,31 @@ public sealed class SessionsViewModel : ObservableObject
 
         try
         {
-            var events = await _events.ListBySessionAsync(Selected.Session.Id);
+            var events = await ResolveNamesAsync(Selected.Session.Id, await _events.ListBySessionAsync(Selected.Session.Id));
             LoadRequested?.Invoke(Selected.Session, events);
         }
         catch (Exception ex)
         {
             StatusText = $"Could not load session: {ex.Message}";
         }
+    }
+
+    /// <summary>
+    /// Overlays the current display name onto each event via the alias/known-speaker resolver, so a
+    /// voice renamed mid-meeting shows its final name on every line — including the early lines that
+    /// were captured before the rename. Events the resolver doesn't know are returned unchanged.
+    /// </summary>
+    private async Task<IReadOnlyList<TranscriptEvent>> ResolveNamesAsync(string sessionId, IReadOnlyList<TranscriptEvent> events)
+    {
+        var resolved = new List<TranscriptEvent>(events.Count);
+        foreach (var e in events)
+        {
+            string? name = await _nameResolver.ResolveDisplayNameAsync(sessionId, e.Speaker.SpeakerId, e.Id);
+            resolved.Add(name is null || name == e.Speaker.DisplayName
+                ? e
+                : e with { Speaker = e.Speaker with { DisplayName = name } });
+        }
+        return resolved;
     }
 
     private async Task ExportSelectedAsync()
@@ -446,5 +480,23 @@ public sealed class SessionsViewModel : ObservableObject
     }
 
     /// <summary>Called by the shell when recording state changes (Load canExecute + list freshness).</summary>
-    public void OnRecordingStateChanged() => LoadCommand.RaiseCanExecuteChanged();
+    public void OnRecordingStateChanged()
+    {
+        LoadCommand.RaiseCanExecuteChanged();
+        ContinueCommand.RaiseCanExecuteChanged();
+    }
+
+    private async Task ContinueSelectedAsync()
+    {
+        if (Selected is null) return;
+        try
+        {
+            var events = await ResolveNamesAsync(Selected.Session.Id, await _events.ListBySessionAsync(Selected.Session.Id));
+            ContinueRequested?.Invoke(Selected.Session, events);
+        }
+        catch (Exception ex)
+        {
+            StatusText = $"Could not load session: {ex.Message}";
+        }
+    }
 }

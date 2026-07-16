@@ -1,6 +1,7 @@
 using System.Collections.ObjectModel;
 using System.Diagnostics;
 using System.IO;
+using System.Linq;
 using System.Windows.Threading;
 using LocalTranscriber.App.Mvvm;
 using LocalTranscriber.App.Services;
@@ -36,6 +37,10 @@ public sealed class MainWindowViewModel : ObservableObject
     private string _elapsed = "00:00:00";
     private int _selectedScreenIndex = (int)AppScreen.Meeting;
     private TranscriptionSessionState _state = TranscriptionSessionState.NotStarted;
+    private bool _titleSavedFlash;
+    private DispatcherTimer? _titleFlashTimer;
+    private bool _transcriptCopiedFlash;
+    private DispatcherTimer? _transcriptCopyFlashTimer;
 
     public MainWindowViewModel(ITranscriptionEngine engine, ConfigService? configService = null)
     {
@@ -49,13 +54,21 @@ public sealed class MainWindowViewModel : ObservableObject
         StopCommand = new AsyncRelayCommand(StopAsync, () => _state is TranscriptionSessionState.Recording or TranscriptionSessionState.Paused);
         PauseCommand = new AsyncRelayCommand(PauseAsync, () => _state == TranscriptionSessionState.Recording);
         ResumeCommand = new AsyncRelayCommand(ResumeAsync, () => _state == TranscriptionSessionState.Paused);
+        ToggleTransportCommand = new AsyncRelayCommand(ToggleTransportAsync,
+            () => _state is not (TranscriptionSessionState.Starting or TranscriptionSessionState.Stopping));
         CloseReviewCommand = new RelayCommand(CloseReview);
+        CancelContinuationCommand = new RelayCommand(CancelContinuation);
         NextMatchCommand = new RelayCommand(() => StepMatch(+1));
         PrevMatchCommand = new RelayCommand(() => StepMatch(-1));
         CitationCommand = new RelayCommand<string>(NavigateToTimestamp);
         RenameSpeakerCommand = new AsyncRelayCommand<TranscriptRowViewModel>(ExecuteRenameSpeakerAsync);
+        CopyTranscriptCommand = new RelayCommand(CopyTranscript, () => Transcript.Count > 0);
 
-        Transcript.CollectionChanged += (_, _) => OnPropertyChanged(nameof(ShowIdlePanel));
+        Transcript.CollectionChanged += (_, _) =>
+        {
+            OnPropertyChanged(nameof(ShowIdlePanel));
+            CopyTranscriptCommand.RaiseCanExecuteChanged();
+        };
         RunPreflightChecks();
     }
 
@@ -63,49 +76,108 @@ public sealed class MainWindowViewModel : ObservableObject
 
     private readonly List<string> _sessionSpeakerNames = new();
 
-    /// <summary>Shell sets this to show a rename input dialog; returns the new name or null on cancel.</summary>
-    public Func<string, IReadOnlyList<string>, string?>? ShowSpeakerRenameDialog { get; set; }
+    /// <summary>Shell sets this to show the rename dialog; returns the chosen name+scope or null on cancel.</summary>
+    public Func<SpeakerRenameRequest, SpeakerRenameResult?>? ShowSpeakerRenameDialog { get; set; }
 
     public AsyncRelayCommand<TranscriptRowViewModel> RenameSpeakerCommand { get; }
+
+    // === Copy transcript ===
+
+    /// <summary>Copies the full transcript (all visible rows) to the clipboard as plain text.</summary>
+    public RelayCommand CopyTranscriptCommand { get; }
+
+    /// <summary>Pulses true for ~1.5 s after a copy to confirm the action visually.</summary>
+    public bool TranscriptCopiedFlash
+    {
+        get => _transcriptCopiedFlash;
+        private set => SetProperty(ref _transcriptCopiedFlash, value);
+    }
+
+    private void CopyTranscript()
+    {
+        if (Transcript.Count == 0) return;
+        var sb = new System.Text.StringBuilder();
+        foreach (var row in Transcript)
+        {
+            sb.Append('[').Append(row.Time).Append("] ");
+            sb.Append(row.SpeakerName).Append(": ");
+            sb.AppendLine(row.Text);
+        }
+        System.Windows.Clipboard.SetText(sb.ToString());
+        FlashTranscriptCopied();
+    }
+
+    private void FlashTranscriptCopied()
+    {
+        TranscriptCopiedFlash = true;
+        _transcriptCopyFlashTimer ??= new DispatcherTimer(DispatcherPriority.Background) { Interval = TimeSpan.FromSeconds(1.5) };
+        _transcriptCopyFlashTimer.Tick -= OnTranscriptCopyFlashTick;
+        _transcriptCopyFlashTimer.Tick += OnTranscriptCopyFlashTick;
+        _transcriptCopyFlashTimer.Stop();
+        _transcriptCopyFlashTimer.Start();
+    }
+
+    private void OnTranscriptCopyFlashTick(object? sender, EventArgs e)
+    {
+        _transcriptCopyFlashTimer!.Stop();
+        TranscriptCopiedFlash = false;
+    }
 
     private async Task ExecuteRenameSpeakerAsync(TranscriptRowViewModel row)
     {
         if (!row.CanRename) return;
 
-        string? newName = ShowSpeakerRenameDialog?.Invoke(row.SpeakerName, _sessionSpeakerNames);
-        if (string.IsNullOrWhiteSpace(newName) || newName.Trim() == row.SpeakerName) return;
+        // Count occurrences to label the "All" option meaningfully.
+        bool wasUnknown = row.IsUnknownSpeaker;
+        string matchId = row.SpeakerId;
+        string oldName = row.SpeakerName;
+        int occurrenceCount = wasUnknown
+            ? Transcript.Count(r => r.SpeakerId == matchId)
+            : Transcript.Count(r => r.SpeakerName == oldName);
 
-        string trimmed = newName.Trim();
+        var request = new SpeakerRenameRequest(oldName, _sessionSpeakerNames, occurrenceCount);
+        SpeakerRenameResult? result = ShowSpeakerRenameDialog?.Invoke(request);
+        if (result is null || string.IsNullOrWhiteSpace(result.NewName) || result.NewName.Trim() == oldName) return;
 
-        if (row.IsUnknownSpeaker)
+        string trimmed = result.NewName.Trim();
+        var newBrush = Services.SpeakerPalette.GetBrushForName(trimmed);
+
+        if (result.Scope == RenameScope.ThisOne)
         {
-            bool ok = await _engine.NameSessionSpeakerAsync(row.SpeakerName, trimmed);
+            bool ok = await _engine.OverrideEventSpeakerAsync(_sessionId, row.EventId, trimmed);
             if (!ok) return;
+
+            row.SpeakerName = trimmed;
+            row.IsUnknownSpeaker = false;
+            row.SpeakerBrush = newBrush;
         }
         else
         {
-            await _engine.RenameKnownSpeakerAsync(row.SpeakerName, trimmed);
-        }
-
-        // Determine which rows to rename: unknowns by session ID, knowns by display name.
-        string matchId = row.SpeakerId;
-        string oldName = row.SpeakerName;
-        bool wasUnknown = row.IsUnknownSpeaker;
-        var newBrush = Services.SpeakerPalette.GetBrushForName(trimmed);
-
-        foreach (var r in Transcript)
-        {
-            bool isTarget = wasUnknown ? r.SpeakerId == matchId : r.SpeakerName == oldName;
-            if (isTarget)
+            // All — existing behavior: enroll/rename globally and update every matching row.
+            if (wasUnknown)
             {
-                r.SpeakerName = trimmed;
-                r.IsUnknownSpeaker = false;
-                r.SpeakerBrush = newBrush;
+                bool ok = await _engine.NameSessionSpeakerAsync(oldName, trimmed);
+                if (!ok) return;
             }
-            else if (r.SpeakerName == trimmed)
+            else
             {
-                // Another speaker already bearing this name — unify their brush too.
-                r.SpeakerBrush = newBrush;
+                await _engine.RenameKnownSpeakerAsync(oldName, trimmed);
+            }
+
+            foreach (var r in Transcript)
+            {
+                bool isTarget = wasUnknown ? r.SpeakerId == matchId : r.SpeakerName == oldName;
+                if (isTarget)
+                {
+                    r.SpeakerName = trimmed;
+                    r.IsUnknownSpeaker = false;
+                    r.SpeakerBrush = newBrush;
+                }
+                else if (r.SpeakerName == trimmed)
+                {
+                    // Another row already bearing this name — unify their brush.
+                    r.SpeakerBrush = newBrush;
+                }
             }
         }
 
@@ -125,8 +197,32 @@ public sealed class MainWindowViewModel : ObservableObject
             {
                 string? stored = value.Trim().Length == 0 ? null : value.Trim();
                 _ = _engine.UpdateSessionTitleAsync(_sessionId, stored);
+                FlashTitleSaved();
             }
         }
+    }
+
+    /// <summary>Pulses true for ~1.5 s after each title save to confirm the change was persisted.</summary>
+    public bool TitleSavedFlash
+    {
+        get => _titleSavedFlash;
+        private set => SetProperty(ref _titleSavedFlash, value);
+    }
+
+    private void FlashTitleSaved()
+    {
+        TitleSavedFlash = true;
+        _titleFlashTimer ??= new DispatcherTimer(DispatcherPriority.Background) { Interval = TimeSpan.FromSeconds(1.5) };
+        _titleFlashTimer.Tick -= OnTitleFlashTick;
+        _titleFlashTimer.Tick += OnTitleFlashTick;
+        _titleFlashTimer.Stop();
+        _titleFlashTimer.Start();
+    }
+
+    private void OnTitleFlashTick(object? sender, EventArgs e)
+    {
+        _titleFlashTimer!.Stop();
+        TitleSavedFlash = false;
     }
 
     // === Review mode ("Viewing archive", design 4l) ===
@@ -140,7 +236,12 @@ public sealed class MainWindowViewModel : ObservableObject
     private List<int> _matchIndices = new();
     private int _currentMatch = -1;
 
+    // === Continuation mode ===
+    private SessionRecord? _continueRecord;
+    private string _continueBannerText = "";
+
     public RelayCommand CloseReviewCommand { get; }
+    public RelayCommand CancelContinuationCommand { get; }
     public RelayCommand NextMatchCommand { get; }
     public RelayCommand PrevMatchCommand { get; }
     public RelayCommand<string> CitationCommand { get; }
@@ -180,6 +281,15 @@ public sealed class MainWindowViewModel : ObservableObject
     /// <summary>Idle status pill hides while recording OR reviewing (the archive pill shows instead).</summary>
     public bool ShowIdleStatusPill => !IsRecording && !IsReviewing;
 
+    /// <summary>True while a session is loaded and ready to be continued (not yet recording).</summary>
+    public bool IsContinuing => _continueRecord is not null;
+
+    public string ContinueBannerText
+    {
+        get => _continueBannerText;
+        private set => SetProperty(ref _continueBannerText, value);
+    }
+
     /// <summary>What the assistant grounds on: the live session's jsonl, or the loaded archive's.</summary>
     public string? GroundingJsonlPath => IsReviewing ? _reviewJsonlPath : CurrentJsonlPath;
 
@@ -208,6 +318,49 @@ public sealed class MainWindowViewModel : ObservableObject
         ReviewSearchText = "";
         IsReviewing = true;
         SelectedScreenIndex = (int)AppScreen.Meeting;
+    }
+
+    /// <summary>Loads a stopped session into the Meeting screen ready for continuation.</summary>
+    public void LoadForContinuation(SessionRecord record, IReadOnlyList<TranscriptEvent> events)
+    {
+        if (IsRecording) return;
+
+        // Close any active review first
+        if (IsReviewing) CloseReview();
+
+        Transcript.Clear();
+        SpeakerPalette.Reset();
+        _sessionSpeakerNames.Clear();
+
+        foreach (var e in events)
+        {
+            var row = new TranscriptRowViewModel(e, _config.SpeakerMatchThreshold);
+            Transcript.Add(row);
+            if (!string.IsNullOrEmpty(row.SpeakerName) && !_sessionSpeakerNames.Contains(row.SpeakerName, StringComparer.OrdinalIgnoreCase))
+                _sessionSpeakerNames.Add(row.SpeakerName);
+        }
+
+        SessionId = record.Id;
+        SessionTitle = record.Title ?? "";
+        CurrentJsonlPath = File.Exists(record.OutputJsonlPath) ? record.OutputJsonlPath : null;
+        _continueRecord = record;
+        ContinueBannerText = $"Continuing: {(string.IsNullOrWhiteSpace(record.Title) ? $"session {record.Id[..Math.Min(8, record.Id.Length)]}" : record.Title)} — press Start to append";
+        OnPropertyChanged(nameof(IsContinuing));
+        SelectedScreenIndex = (int)AppScreen.Meeting;
+    }
+
+    private void CancelContinuation()
+    {
+        if (_continueRecord is null) return;
+        _continueRecord = null;
+        ContinueBannerText = "";
+        Transcript.Clear();
+        SessionId = "";
+        SessionTitle = "";
+        CurrentJsonlPath = null;
+        OnPropertyChanged(nameof(IsContinuing));
+        OnPropertyChanged(nameof(ShowIdlePanel));
+        OnPropertyChanged(nameof(GroundingJsonlPath));
     }
 
     private void CloseReview()
@@ -418,6 +571,8 @@ public sealed class MainWindowViewModel : ObservableObject
     public AsyncRelayCommand StopCommand { get; }
     public AsyncRelayCommand PauseCommand { get; }
     public AsyncRelayCommand ResumeCommand { get; }
+    /// <summary>Dispatches to Start/Pause/Resume based on current session state; used by the single live transport button.</summary>
+    public AsyncRelayCommand ToggleTransportCommand { get; }
 
     /// <summary>Transcript turns of the current session, appended live on the UI thread.</summary>
     public ObservableCollection<TranscriptRowViewModel> Transcript { get; } = new();
@@ -494,6 +649,19 @@ public sealed class MainWindowViewModel : ObservableObject
     /// <summary>True while a session is live (recording or paused) — drives the header pill.</summary>
     public bool IsRecording => _state is TranscriptionSessionState.Recording or TranscriptionSessionState.Paused;
 
+    /// <summary>True when idle/stopped/faulted — shows the Start button, hides the live transport button.</summary>
+    public bool IsIdleTransport => _state is TranscriptionSessionState.NotStarted or TranscriptionSessionState.Stopped or TranscriptionSessionState.Faulted;
+
+    /// <summary>True while paused — swaps the live transport button label to Resume.</summary>
+    public bool IsPausedTransport => _state == TranscriptionSessionState.Paused;
+
+    private Task ToggleTransportAsync() => _state switch
+    {
+        TranscriptionSessionState.Recording => PauseAsync(),
+        TranscriptionSessionState.Paused    => ResumeAsync(),
+        _                                    => StartAsync(),
+    };
+
     private void SetState(TranscriptionSessionState state)
     {
         _state = state;
@@ -525,6 +693,9 @@ public sealed class MainWindowViewModel : ObservableObject
         StopCommand.RaiseCanExecuteChanged();
         PauseCommand.RaiseCanExecuteChanged();
         ResumeCommand.RaiseCanExecuteChanged();
+        ToggleTransportCommand.RaiseCanExecuteChanged();
+        OnPropertyChanged(nameof(IsIdleTransport));
+        OnPropertyChanged(nameof(IsPausedTransport));
     }
 
     private void UpdateRecordingClock(TranscriptionSessionState state)
@@ -563,17 +734,39 @@ public sealed class MainWindowViewModel : ObservableObject
         {
             CloseReview(); // "Start new recording" from the review banner exits review first
             ErrorText = "";
-            Transcript.Clear();
-            SpeakerPalette.Reset();
+            bool isContinuation = _continueRecord is not null;
+            SessionRecord? continueRecord = _continueRecord;
+
+            if (!isContinuation)
+            {
+                Transcript.Clear();
+                SpeakerPalette.Reset();
+            }
+
             string folder = string.IsNullOrWhiteSpace(OutputFolder) ? "output/transcripts" : OutputFolder;
-            var options = EngineFactory.CreateSessionOptions(_config, folder);
+            var options = isContinuation
+                ? EngineFactory.CreateContinuationOptions(_config, continueRecord!)
+                : EngineFactory.CreateSessionOptions(_config, folder);
 
             await _engine.StartAsync(options);
             SessionId = options.SessionId;
-            SessionTitle = "";
-            _sessionSpeakerNames.Clear();
+
+            if (!isContinuation)
+            {
+                SessionTitle = "";
+                _sessionSpeakerNames.Clear();
+            }
+
             CurrentJsonlPath = options.OutputJsonlPath;
             SetState(TranscriptionSessionState.Recording);
+
+            // Clear continuation state now that recording is live
+            if (isContinuation)
+            {
+                _continueRecord = null;
+                ContinueBannerText = "";
+                OnPropertyChanged(nameof(IsContinuing));
+            }
 
             // Surface any non-fatal start warnings (e.g. a skipped audio source).
             var status = await _engine.GetStatusAsync();

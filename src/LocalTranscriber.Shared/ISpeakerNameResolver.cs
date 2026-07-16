@@ -8,9 +8,9 @@ public interface ISpeakerNameResolver
 {
     /// <summary>
     /// Returns the current display name for the given speaker, or null when unknown/unchanged.
-    /// For session-local IDs (e.g. "session_speaker_1"), uses the alias table.
-    /// For enrolled speaker IDs, returns display name directly.
+    /// When <paramref name="eventId"/> is supplied, a per-event override ("just this line") is
+    /// checked first and takes precedence over the alias/known-speaker chain.
     /// Returns null for "mic" and "speaker_unknown" (no override needed).
     /// </summary>
-    Task<string?> ResolveDisplayNameAsync(string sessionId, string speakerId, CancellationToken cancellationToken = default);
+    Task<string?> ResolveDisplayNameAsync(string sessionId, string speakerId, string? eventId = null, CancellationToken cancellationToken = default);
 }

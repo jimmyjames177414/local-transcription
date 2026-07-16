@@ -340,4 +340,75 @@ public class RealEngineIntegrationTests : IAsyncLifetime
         Assert.Contains("stalled", status.Error ?? "", StringComparison.OrdinalIgnoreCase);
         Assert.Equal(2, factoryCalls);
     }
+
+    // ── OverrideEventSpeakerAsync ─────────────────────────────────────────────
+
+    [Fact]
+    public async Task OverrideEventSpeakerAsync_WritesToStore_AndReturnsTrue()
+    {
+        var db = new LocalTranscriber.Storage.SqliteDatabase(Path.Combine(_dir, "override-test.sqlite"));
+        var overrideStore = new LocalTranscriber.Storage.SqliteEventSpeakerOverrideStore(db);
+        var speakerStore = new LocalTranscriber.Storage.SqliteKnownSpeakerStore(db);
+
+        await using var engine = new RealTranscriptionEngine(
+            new FakeTranscriptionService(),
+            micFactory: () => new FakeCaptureService(AudioSourceType.Microphone),
+            speakerStore: speakerStore,
+            overrideStore: overrideStore);
+
+        bool ok = await engine.OverrideEventSpeakerAsync("session-1", "evt-abc", "Bob");
+
+        Assert.True(ok);
+        Assert.Equal("Bob", await overrideStore.ResolveAsync("session-1", "evt-abc"));
+    }
+
+    [Fact]
+    public async Task OverrideEventSpeakerAsync_LinksKnownSpeakerId_WhenNameExists()
+    {
+        var db = new LocalTranscriber.Storage.SqliteDatabase(Path.Combine(_dir, "override-known-test.sqlite"));
+        var overrideStore = new LocalTranscriber.Storage.SqliteEventSpeakerOverrideStore(db);
+        var speakerStore = new LocalTranscriber.Storage.SqliteKnownSpeakerStore(db);
+        var alice = await speakerStore.CreateAsync("Alice");
+
+        await using var engine = new RealTranscriptionEngine(
+            new FakeTranscriptionService(),
+            micFactory: () => new FakeCaptureService(AudioSourceType.Microphone),
+            speakerStore: speakerStore,
+            overrideStore: overrideStore);
+
+        bool ok = await engine.OverrideEventSpeakerAsync("session-1", "evt-abc", "Alice");
+
+        Assert.True(ok);
+        var overrides = await overrideStore.ListForSessionAsync("session-1");
+        Assert.Single(overrides);
+        Assert.Equal("Alice", overrides[0].DisplayName);
+        // Known speaker row not touched — name not enrolled or renamed.
+        Assert.Equal(alice.Id, (await speakerStore.GetByNameAsync("Alice"))!.Id);
+        Assert.Equal(0, (await speakerStore.GetByNameAsync("Alice"))!.SampleCount);
+    }
+
+    [Fact]
+    public async Task OverrideEventSpeakerAsync_NoStore_ReturnsFalse()
+    {
+        await using var engine = new RealTranscriptionEngine(new FakeTranscriptionService(),
+            micFactory: () => new FakeCaptureService(AudioSourceType.Microphone));
+
+        bool ok = await engine.OverrideEventSpeakerAsync("session-1", "evt-abc", "Bob");
+
+        Assert.False(ok);
+    }
+
+    [Fact]
+    public async Task OverrideEventSpeakerAsync_BlankArgs_ReturnsFalse()
+    {
+        var db = new LocalTranscriber.Storage.SqliteDatabase(Path.Combine(_dir, "override-blank-test.sqlite"));
+        var overrideStore = new LocalTranscriber.Storage.SqliteEventSpeakerOverrideStore(db);
+
+        await using var engine = new RealTranscriptionEngine(new FakeTranscriptionService(),
+            micFactory: () => new FakeCaptureService(AudioSourceType.Microphone),
+            overrideStore: overrideStore);
+
+        Assert.False(await engine.OverrideEventSpeakerAsync("", "evt-abc", "Bob"));
+        Assert.False(await engine.OverrideEventSpeakerAsync("session-1", "", "Bob"));
+    }
 }

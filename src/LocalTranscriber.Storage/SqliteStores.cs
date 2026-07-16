@@ -81,6 +81,15 @@ public sealed class SqliteSessionStore : ISessionStore
         await cmd.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
     }
 
+    public async Task ReopenAsync(string sessionId, CancellationToken cancellationToken = default)
+    {
+        using var connection = _db.OpenConnection();
+        using var cmd = connection.CreateCommand();
+        cmd.CommandText = "UPDATE sessions SET status = 'recording', ended_at = NULL WHERE id = $id";
+        cmd.Parameters.AddWithValue("$id", sessionId);
+        await cmd.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+    }
+
     public async Task<IReadOnlyList<SessionSummary>> ListSummariesAsync(CancellationToken cancellationToken = default)
     {
         var sessions = await ListAsync(cancellationToken).ConfigureAwait(false);
@@ -89,11 +98,12 @@ public sealed class SqliteSessionStore : ISessionStore
         // speaker names may contain commas.
         var speakersBySession = new Dictionary<string, List<string>>();
         var countsBySession = new Dictionary<string, int>();
+        var lastEventBySession = new Dictionary<string, DateTimeOffset>();
         using (var connection = _db.OpenConnection())
         using (var cmd = connection.CreateCommand())
         {
             cmd.CommandText = """
-                SELECT session_id, speaker_name, COUNT(*)
+                SELECT session_id, speaker_name, COUNT(*), MAX(timestamp)
                 FROM transcript_events
                 GROUP BY session_id, speaker_name
                 ORDER BY session_id, MIN(timestamp)
@@ -108,6 +118,11 @@ public sealed class SqliteSessionStore : ISessionStore
                 }
                 names.Add(reader.GetString(1));
                 countsBySession[sessionId] = countsBySession.GetValueOrDefault(sessionId) + reader.GetInt32(2);
+                if (!reader.IsDBNull(3) && DateTimeOffset.TryParse(reader.GetString(3), out var ts)
+                    && (!lastEventBySession.TryGetValue(sessionId, out var prev) || ts > prev))
+                {
+                    lastEventBySession[sessionId] = ts;
+                }
             }
         }
 
@@ -115,7 +130,8 @@ public sealed class SqliteSessionStore : ISessionStore
             .Select(s => new SessionSummary(
                 s,
                 countsBySession.GetValueOrDefault(s.Id),
-                speakersBySession.TryGetValue(s.Id, out var names) ? names : Array.Empty<string>()))
+                speakersBySession.TryGetValue(s.Id, out var names) ? names : Array.Empty<string>(),
+                lastEventBySession.TryGetValue(s.Id, out var last) ? last : null))
             .ToList();
     }
 
@@ -184,6 +200,16 @@ public sealed class SqliteTranscriptEventStore : ITranscriptEventStore
                 EndMs: reader.IsDBNull(9) ? null : reader.GetInt64(9)));
         }
         return result;
+    }
+
+    public async Task<DateTimeOffset?> GetLastTimestampAsync(string sessionId, CancellationToken cancellationToken = default)
+    {
+        using var connection = _db.OpenConnection();
+        using var cmd = connection.CreateCommand();
+        cmd.CommandText = "SELECT MAX(timestamp) FROM transcript_events WHERE session_id = $session";
+        cmd.Parameters.AddWithValue("$session", sessionId);
+        var value = await cmd.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false);
+        return value is string s && DateTimeOffset.TryParse(s, out var ts) ? ts : null;
     }
 
     public async Task DeleteBySessionAsync(string sessionId, CancellationToken cancellationToken = default)
@@ -427,6 +453,54 @@ public sealed class SqliteSpeakerAliasStore : ISpeakerAliasStore
         using var connection = _db.OpenConnection();
         using var cmd = connection.CreateCommand();
         cmd.CommandText = "SELECT session_speaker_id, known_speaker_id FROM speaker_aliases WHERE session_id = $sid";
+        cmd.Parameters.AddWithValue("$sid", sessionId);
+        var result = new List<(string, string)>();
+        using var reader = await cmd.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
+        while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
+            result.Add((reader.GetString(0), reader.GetString(1)));
+        return result;
+    }
+}
+
+public sealed class SqliteEventSpeakerOverrideStore : IEventSpeakerOverrideStore
+{
+    private readonly SqliteDatabase _db;
+
+    public SqliteEventSpeakerOverrideStore(SqliteDatabase db) => _db = db;
+
+    public async Task UpsertAsync(string sessionId, string eventId, string displayName, string? knownSpeakerId, CancellationToken cancellationToken = default)
+    {
+        using var connection = _db.OpenConnection();
+        using var cmd = connection.CreateCommand();
+        cmd.CommandText = """
+            INSERT INTO event_speaker_overrides (session_id, event_id, display_name, known_speaker_id, created_at)
+            VALUES ($sid, $eid, $name, $kid, $created)
+            ON CONFLICT (session_id, event_id) DO UPDATE SET display_name = $name, known_speaker_id = $kid
+            """;
+        cmd.Parameters.AddWithValue("$sid", sessionId);
+        cmd.Parameters.AddWithValue("$eid", eventId);
+        cmd.Parameters.AddWithValue("$name", displayName);
+        cmd.Parameters.AddWithValue("$kid", (object?)knownSpeakerId ?? DBNull.Value);
+        cmd.Parameters.AddWithValue("$created", DateTimeOffset.Now.ToString("o"));
+        await cmd.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+    }
+
+    public async Task<string?> ResolveAsync(string sessionId, string eventId, CancellationToken cancellationToken = default)
+    {
+        using var connection = _db.OpenConnection();
+        using var cmd = connection.CreateCommand();
+        cmd.CommandText = "SELECT display_name FROM event_speaker_overrides WHERE session_id = $sid AND event_id = $eid";
+        cmd.Parameters.AddWithValue("$sid", sessionId);
+        cmd.Parameters.AddWithValue("$eid", eventId);
+        using var reader = await cmd.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
+        return await reader.ReadAsync(cancellationToken).ConfigureAwait(false) ? reader.GetString(0) : null;
+    }
+
+    public async Task<IReadOnlyList<(string EventId, string DisplayName)>> ListForSessionAsync(string sessionId, CancellationToken cancellationToken = default)
+    {
+        using var connection = _db.OpenConnection();
+        using var cmd = connection.CreateCommand();
+        cmd.CommandText = "SELECT event_id, display_name FROM event_speaker_overrides WHERE session_id = $sid";
         cmd.Parameters.AddWithValue("$sid", sessionId);
         var result = new List<(string, string)>();
         using var reader = await cmd.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);

@@ -126,11 +126,9 @@ public sealed class ClaudeCliConversation : IRealtimeVoiceConversation
 
     private async Task OnPushToTalkDownAsync()
     {
-        if (_options.Mode != RealtimeVoiceMode.Hybrid)
-        {
-            return; // only hybrid is supported; streaming modes have no provider to stream to
-        }
-
+        // This backend has no audio-streaming provider — local Whisper capture is the only path,
+        // so always capture regardless of the configured voiceMode string.
+        AppLog.Info("claude-cli", "Push-to-talk down: starting local Whisper capture.");
         var ct = _sessionCts?.Token ?? CancellationToken.None;
         _recorder = _recorderFactory();
         await _recorder.StartAsync(ct).ConfigureAwait(false);
@@ -139,7 +137,7 @@ public sealed class ClaudeCliConversation : IRealtimeVoiceConversation
 
     private async Task OnPushToTalkUpAsync()
     {
-        if (_options.Mode != RealtimeVoiceMode.Hybrid || _recorder is null)
+        if (_recorder is null)
         {
             return;
         }
@@ -187,6 +185,7 @@ public sealed class ClaudeCliConversation : IRealtimeVoiceConversation
         }
 
         // Show the user's own words (SendUserTextAsync does not raise this — the caller already has the text).
+        AppLog.Info("claude-cli", $"Push-to-talk transcribed {text.Length} chars — sending turn.");
         UserTextCommitted?.Invoke(this, text);
         await RunTurnAsync(text).ConfigureAwait(false);
     }

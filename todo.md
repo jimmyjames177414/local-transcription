@@ -64,3 +64,21 @@ File: `RealtimeVoiceSession.cs`
       `DisposeAsync`.
 - [ ] Minor: `_groundedIds` unbounded; grounding-loop send failure can make `StopAsync` throw;
       `AudioTranscriptDone` mapped but unhandled.
+
+## Bugs found via log analysis (2026-07-16)
+
+- [ ] **Barge-in cancels when no response is active** (`RealtimeVoiceSession.cs:498`, HIGH)
+      `OnUserSpeechStartedAsync` guard uses `&&`: if `_currentItemId` is null but audio is still
+      draining, `response.cancel` fires and the server rejects it ("Cancellation failed: no active
+      response found"). Fix: return early whenever `_currentItemId is null`, stopping audio first.
+- [ ] **Commit fires with 0 ms audio when mic unavailable** (`RealtimeVoiceSession.cs:295`, HIGH)
+      In `StartMicStreamingAsync`, `_micStreamPump` is assigned before `StartAsync` is called; if
+      `StartAsync` throws (no mic), the pump is left non-null with stale counters, the
+      `framesSent/bytesSent` guard passes incorrectly, and `input_audio_buffer.commit` is sent to
+      an empty server buffer ("buffer too small, only has 0.00ms"). Fix: null `_micStreamPump` if
+      `StartAsync` throws, or set a `_pumpStarted` flag only after success.
+- [ ] **Duplicate `response.create` while one is in flight** (`RealtimeVoiceSession.cs:490`, MED)
+      Downstream of the barge-in bug: failed `response.cancel` leaves the old response active, so
+      the next `response.create` hits "Conversation already has an active response in progress".
+      Fixing the barge-in bug removes most occurrences; a client-side `_isResponseInFlight` guard
+      covers remaining races.
