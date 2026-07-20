@@ -132,6 +132,19 @@ public class RealEngineIntegrationTests : IAsyncLifetime
         }
     }
 
+    /// <summary>Always transcribes to the same fixed text — used to exercise dedup.</summary>
+    private sealed class ConstantTranscriptionService : ILocalTranscriptionService
+    {
+        private readonly string _text;
+        public ConstantTranscriptionService(string text) => _text = text;
+
+        public Task<TranscriptionResult> TranscribeAsync(TranscriptionRequest request, CancellationToken cancellationToken = default)
+        {
+            var segment = new TranscribedSegment(_text, 0, 2000, 0.95);
+            return Task.FromResult(new TranscriptionResult(_text, new[] { segment }, 0.95, TimeSpan.FromMilliseconds(5)));
+        }
+    }
+
     private sealed class FakeDiarizationService : ISpeakerDiarizationService
     {
         public Task<IReadOnlyList<SpeakerSegment>> DiarizeAsync(SpeakerDiarizationRequest request, CancellationToken cancellationToken = default)
@@ -410,5 +423,46 @@ public class RealEngineIntegrationTests : IAsyncLifetime
 
         Assert.False(await engine.OverrideEventSpeakerAsync("", "evt-abc", "Bob"));
         Assert.False(await engine.OverrideEventSpeakerAsync("session-1", "", "Bob"));
+    }
+
+    // ── Per-source dedup ──────────────────────────────────────────────────────
+
+    [Fact]
+    public async Task Dedup_IsPerSource_IdenticalMicAndSystemLinesBothSurvive_ButSameSourceRepeatsCoalesce()
+    {
+        // Every window on both sources transcribes to the exact same text. Before per-source dedup,
+        // one shared last-emitted string meant only the first "okay" ever emitted (whichever source
+        // won the race) and the other source's identical line was silently dropped.
+        await using var engine = new RealTranscriptionEngine(
+            new ConstantTranscriptionService("okay"),
+            micFactory: () => new FakeCaptureService(AudioSourceType.Microphone),
+            systemFactory: () => new FakeCaptureService(AudioSourceType.SystemAudio),
+            diarization: new FakeDiarizationService(),
+            embedding: new FakeEmbeddingService(),
+            recognition: new FakeRecognitionService());
+
+        await engine.StartAsync(MakeOptions(mic: true, system: true));
+
+        var events = new List<TranscriptEvent>();
+        using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+        try
+        {
+            await foreach (var e in engine.StreamEventsAsync(cts.Token))
+            {
+                events.Add(e);
+            }
+        }
+        catch (OperationCanceledException)
+        {
+        }
+
+        await engine.StopAsync();
+
+        // Per-source survival: an identical "okay" from BOTH sources is kept.
+        Assert.Contains(events, e => e.Source == AudioSourceType.Microphone && e.Text == "okay");
+        Assert.Contains(events, e => e.Source == AudioSourceType.SystemAudio && e.Text == "okay");
+        // Same-source repeats still coalesce: many identical windows per source collapse to one line each.
+        Assert.Equal(1, events.Count(e => e.Source == AudioSourceType.Microphone));
+        Assert.Equal(1, events.Count(e => e.Source == AudioSourceType.SystemAudio));
     }
 }

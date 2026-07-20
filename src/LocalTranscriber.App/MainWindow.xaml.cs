@@ -73,6 +73,7 @@ public partial class MainWindow : Window
     }
 
     private bool _closingConfirmed;
+    private bool _closing;
 
     /// <summary>
     /// Cancels the first close, tears the conversation/session down asynchronously, then re-closes.
@@ -86,6 +87,15 @@ public partial class MainWindow : Window
             base.OnClosing(e);
             return;
         }
+
+        // Clicking X again while the async shutdown below is still in flight would re-enter
+        // (_closingConfirmed is not yet set) and tear everything down twice. Guard against it.
+        if (_closing)
+        {
+            e.Cancel = true;
+            return;
+        }
+        _closing = true;
 
         e.Cancel = true;
         try

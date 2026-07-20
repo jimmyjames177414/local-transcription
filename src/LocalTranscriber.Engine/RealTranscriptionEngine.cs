@@ -58,7 +58,10 @@ public sealed class RealTranscriptionEngine : ITranscriptionEngine, IAsyncDispos
     private SessionSpeakerRegistry? _registry;
     private string? _tempDir;
     private int _windowCounter;
-    private string _lastEmittedText = "";
+    // Last-emitted text is keyed per source so a mic line and an identical system line
+    // don't collide (mic and system stay separate end to end). Emissions run on the single
+    // processor task, so no synchronization is needed.
+    private readonly Dictionary<AudioSourceType, string> _lastEmittedText = new();
 
     private volatile bool _paused;
     // volatile: read lock-free by the capture watchdog's isActive predicate (CaptureHost).
@@ -132,7 +135,7 @@ public sealed class RealTranscriptionEngine : ITranscriptionEngine, IAsyncDispos
             _eventCount = 0;
             _paused = false;
             _warnings.Clear();
-            _lastEmittedText = "";
+            _lastEmittedText.Clear();
             _windowCounter = 0;
 
             _writer = new CompositeTranscriptWriter(
@@ -335,12 +338,15 @@ public sealed class RealTranscriptionEngine : ITranscriptionEngine, IAsyncDispos
             }
         }
 
-        // Overlap dedup: drop a segment identical to the last emitted text.
-        if (string.Equals(text, _lastEmittedText, StringComparison.OrdinalIgnoreCase))
+        // Overlap dedup: drop a segment identical to the last emitted text for THIS source.
+        // A back-to-back same-source repeat is still coalesced (the existing overlap-echo guard),
+        // but an identical line from the other source now survives.
+        if (_lastEmittedText.TryGetValue(source, out var last) &&
+            string.Equals(text, last, StringComparison.OrdinalIgnoreCase))
         {
             return;
         }
-        _lastEmittedText = text;
+        _lastEmittedText[source] = text;
 
         var e = new TranscriptEvent(
             Id: Guid.NewGuid().ToString("N"),
@@ -590,9 +596,6 @@ public sealed class RealTranscriptionEngine : ITranscriptionEngine, IAsyncDispos
             }
         }
     }
-
-    public Task<IReadOnlyList<SessionSpeakerInfo>> ListSessionSpeakersAsync(CancellationToken cancellationToken = default)
-        => Task.FromResult(_registry?.Snapshot() ?? (IReadOnlyList<SessionSpeakerInfo>)Array.Empty<SessionSpeakerInfo>());
 
     public async Task<bool> RenameKnownSpeakerAsync(string oldName, string newName, CancellationToken cancellationToken = default)
     {

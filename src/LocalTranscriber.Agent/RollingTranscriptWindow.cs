@@ -60,36 +60,3 @@ public sealed class RollingTranscriptWindow
         }
     }
 }
-
-/// <summary>
-/// The running meeting summary, updated from provider results.
-/// </summary>
-public sealed class MeetingRunningSummary
-{
-    private readonly object _lock = new();
-    private string _summary = "";
-
-    public string Current
-    {
-        get
-        {
-            lock (_lock)
-            {
-                return _summary;
-            }
-        }
-    }
-
-    public void Update(string? update)
-    {
-        if (string.IsNullOrWhiteSpace(update))
-        {
-            return;
-        }
-
-        lock (_lock)
-        {
-            _summary = update.Trim();
-        }
-    }
-}

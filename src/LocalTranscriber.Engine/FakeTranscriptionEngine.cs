@@ -281,9 +281,6 @@ public sealed class FakeTranscriptionEngine : ITranscriptionEngine, IAsyncDispos
         }
     }
 
-    public Task<IReadOnlyList<SessionSpeakerInfo>> ListSessionSpeakersAsync(CancellationToken cancellationToken = default)
-        => Task.FromResult<IReadOnlyList<SessionSpeakerInfo>>(Array.Empty<SessionSpeakerInfo>());
-
     public Task<bool> NameSessionSpeakerAsync(string sessionLabel, string newName, CancellationToken cancellationToken = default)
         => Task.FromResult(false);
 

@@ -39,19 +39,35 @@
                     <Hyperlink Command="{Binding DataContext.Session.RenameSpeakerCommand,
                                         RelativeSource={RelativeSource AncestorType=ListBox}}"
                                CommandParameter="{Binding}"
-                               Foreground="{Binding SpeakerBrush}"
-                               TextDecorations="None"
-                               Cursor="Hand">
+                               Foreground="{Binding SpeakerBrush}">
                         <Hyperlink.Style>
                             <Style TargetType="Hyperlink">
+                                <!-- Default: inert plain text. The speaker name is a live rename link
+                                     only in editable lists (Meeting/review) AND for a renamable
+                                     (unidentified) speaker. The read-only Sessions preview has no
+                                     Session on the DataContext, so the Command would bind to null;
+                                     keep it disabled and non-interactive there (mirrors the ✕ delete
+                                     button's Tag=="editable" gate). -->
+                                <Setter Property="IsEnabled" Value="False" />
+                                <Setter Property="Cursor" Value="Arrow" />
+                                <Setter Property="TextDecorations" Value="{x:Null}" />
                                 <Style.Triggers>
-                                    <DataTrigger Binding="{Binding CanRename}" Value="False">
-                                        <Setter Property="Cursor" Value="Arrow" />
-                                        <Setter Property="IsEnabled" Value="False" />
-                                    </DataTrigger>
-                                    <Trigger Property="IsMouseOver" Value="True">
+                                    <MultiDataTrigger>
+                                        <MultiDataTrigger.Conditions>
+                                            <Condition Binding="{Binding Tag, RelativeSource={RelativeSource AncestorType=ListBox}}" Value="editable" />
+                                            <Condition Binding="{Binding CanRename}" Value="True" />
+                                        </MultiDataTrigger.Conditions>
+                                        <Setter Property="IsEnabled" Value="True" />
+                                        <Setter Property="Cursor" Value="Hand" />
+                                    </MultiDataTrigger>
+                                    <MultiDataTrigger>
+                                        <MultiDataTrigger.Conditions>
+                                            <Condition Binding="{Binding Tag, RelativeSource={RelativeSource AncestorType=ListBox}}" Value="editable" />
+                                            <Condition Binding="{Binding CanRename}" Value="True" />
+                                            <Condition Binding="{Binding IsMouseOver, RelativeSource={RelativeSource Self}}" Value="True" />
+                                        </MultiDataTrigger.Conditions>
                                         <Setter Property="TextDecorations" Value="Underline" />
-                                    </Trigger>
+                                    </MultiDataTrigger>
                                 </Style.Triggers>
                             </Style>
                         </Hyperlink.Style>

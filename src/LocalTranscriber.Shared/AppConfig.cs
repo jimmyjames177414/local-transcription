@@ -17,7 +17,6 @@ public sealed class AppConfig
     public double NewSpeakerThreshold { get; set; } = 0.40;
     public int ChunkSeconds { get; set; } = 10;
     public int OverlapMs { get; set; } = 500;
-    public int FlushIntervalMs { get; set; } = 1000;
     public bool FilterNonSpeech { get; set; } = true;
     // Decoding tuning (A3)
     public int WhisperBeamSize { get; set; } = 5;

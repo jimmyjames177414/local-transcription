@@ -1088,6 +1088,7 @@ public sealed class MainWindowViewModel : ObservableObject
                 AppLog.Warn("app", status.Error);
             }
 
+            _streamCts?.Dispose();
             _streamCts = new CancellationTokenSource();
             _ = ConsumeEventsAsync(_streamCts.Token);
         }
@@ -1108,13 +1109,29 @@ public sealed class MainWindowViewModel : ObservableObject
                 var captured = e;
                 PostToUi(() => Transcript.Add(new TranscriptRowViewModel(captured, _config.SpeakerMatchThreshold)));
             }
+
+            // Stream ended on its own without a stop being requested: the engine died out from
+            // under us. Surface it instead of leaving the header stuck on "Recording".
+            if (!cancellationToken.IsCancellationRequested)
+            {
+                PostToUi(() =>
+                {
+                    ErrorText = "Transcription stream ended unexpectedly.";
+                    SetState(TranscriptionSessionState.Faulted);
+                });
+            }
         }
         catch (OperationCanceledException)
         {
+            // Deliberate stop cancelled the token; StopAsync owns the Stopped state.
         }
         catch (Exception ex)
         {
-            PostToUi(() => ErrorText = ex.Message);
+            PostToUi(() =>
+            {
+                ErrorText = ex.Message;
+                SetState(TranscriptionSessionState.Faulted);
+            });
         }
     }
 
@@ -1136,6 +1153,7 @@ public sealed class MainWindowViewModel : ObservableObject
         {
             SetState(TranscriptionSessionState.Stopping);
             _streamCts?.Cancel();
+            _streamCts?.Dispose();
             _streamCts = null;
             await _engine.StopAsync();
             SetState(TranscriptionSessionState.Stopped);

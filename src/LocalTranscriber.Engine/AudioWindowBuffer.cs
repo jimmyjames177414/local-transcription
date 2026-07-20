@@ -40,6 +40,20 @@ public sealed class AudioWindowBuffer
     /// <summary>Adds a chunk; returns a completed window when enough audio accumulated, else null.</summary>
     public AudioWindow? Add(AudioChunk chunk)
     {
+        // A mid-session device hot-reconnect (CaptureHost.TryRestartAsync) can hand us a chunk
+        // in a different format than the one we latched. Appending it to the stale buffer would
+        // tag the window with the wrong format (bad WAV header, garbled Whisper input, wrong
+        // Peak()/timestamps). Drop the stale partial buffer and re-latch on the new format.
+        if (_hasFormat &&
+            (chunk.SampleRate != _sampleRate ||
+             chunk.Channels != _channels ||
+             chunk.BitsPerSample != _bitsPerSample ||
+             chunk.IsIeeeFloat != _isFloat))
+        {
+            _buffer.SetLength(0);
+            _hasFormat = false;
+        }
+
         if (!_hasFormat)
         {
             _sampleRate = chunk.SampleRate;

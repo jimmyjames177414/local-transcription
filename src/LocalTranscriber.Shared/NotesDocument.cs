@@ -108,9 +108,6 @@ public sealed class NotesDocument
         return doc;
     }
 
-    public static string HeadingFor(NoteSection section)
-        => Headings.First(h => h.Section == section).Heading;
-
     /// <summary>Maps a tool-call section string ("decisions", "action_items"...) to a section.</summary>
     public static NoteSection? SectionFromKey(string? key) => key?.Trim().ToLowerInvariant() switch
     {

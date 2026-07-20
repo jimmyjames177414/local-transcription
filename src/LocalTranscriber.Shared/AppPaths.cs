@@ -66,14 +66,12 @@ public static class AppPaths
 }
 
 /// <summary>
-/// Minimal structured-ish file logger. Never logs transcript text unless debug mode.
+/// Minimal structured-ish file logger. Never logs transcript text.
 /// </summary>
 public static class AppLog
 {
     private static readonly object Lock = new();
     private static string? _path;
-
-    public static bool DebugMode { get; set; }
 
     private static string LogPath
     {
