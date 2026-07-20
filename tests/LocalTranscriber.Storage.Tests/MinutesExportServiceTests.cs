@@ -41,6 +41,8 @@ public class MinutesExportServiceTests : IDisposable
             => Task.FromResult<DateTimeOffset?>(null);
         public Task DeleteBySessionAsync(string sessionId, CancellationToken ct = default)
             => throw new NotSupportedException();
+        public Task DeleteAsync(string eventId, CancellationToken ct = default)
+            => throw new NotSupportedException();
         public Task<IReadOnlyList<string>> SearchSessionIdsAsync(string text, CancellationToken ct = default)
             => throw new NotSupportedException();
     }

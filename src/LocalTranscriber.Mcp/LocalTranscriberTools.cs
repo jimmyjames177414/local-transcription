@@ -146,7 +146,7 @@ public sealed class LocalTranscriberTools
         return speakers.Count == 0 ? "No known speakers yet." : JsonSerializer.Serialize(speakers, Pretty);
     }
 
-    [McpServerTool(Name = "rename_speaker"), Description("Rename a speaker. Creates the name if it does not exist yet.")]
+    [McpServerTool(Name = "rename_speaker"), Description("Rename an existing known speaker, keeping its voice embeddings. Fails if no speaker with that name exists.")]
     public async Task<string> RenameSpeaker(
         [Description("Current speaker name.")] string from,
         [Description("New speaker name.")] string to)
@@ -157,8 +157,15 @@ public sealed class LocalTranscriberTools
             return "Both 'from' and 'to' names are required.";
         }
 
-        await _service.SpeakerStore.RenameAsync(from, to);
-        return $"Renamed '{from}' to '{to}'.";
+        if (await _service.SpeakerStore.GetByNameAsync(from) is null)
+        {
+            return $"No known speaker named '{from}'.";
+        }
+
+        bool ok = await _service.SpeakerStore.RenameAsync(from, to);
+        return ok
+            ? $"Renamed '{from}' to '{to}'."
+            : $"A speaker named '{to}' already exists. Forget one first to merge them.";
     }
 
     [McpServerTool(Name = "forget_speaker"), Description("Forget a known speaker and delete its stored voice embeddings.")]

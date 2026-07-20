@@ -2,12 +2,16 @@ using System.Collections.ObjectModel;
 using System.Diagnostics;
 using System.IO;
 using System.Linq;
+using System.Reflection;
+using System.Text;
 using System.Windows.Threading;
 using LocalTranscriber.App.Mvvm;
 using LocalTranscriber.App.Services;
+using LocalTranscriber.Context;
 using LocalTranscriber.Engine;
 using LocalTranscriber.Shared;
 using LocalTranscriber.Storage;
+using LocalTranscriber.Voice;
 
 namespace LocalTranscriber.App.ViewModels;
 
@@ -24,6 +28,7 @@ public sealed class MainWindowViewModel : ObservableObject
 {
     private readonly ITranscriptionEngine _engine;
     private readonly AppConfig _config;
+    private readonly IKnownSpeakerStore _knownSpeakers;
     private readonly SynchronizationContext? _uiContext;
     private readonly Stopwatch _recordingWatch = new();
     private DispatcherTimer? _elapsedTimer;
@@ -42,11 +47,15 @@ public sealed class MainWindowViewModel : ObservableObject
     private bool _transcriptCopiedFlash;
     private DispatcherTimer? _transcriptCopyFlashTimer;
 
-    public MainWindowViewModel(ITranscriptionEngine engine, ConfigService? configService = null)
+    public MainWindowViewModel(ITranscriptionEngine engine, ConfigService? configService = null,
+        IKnownSpeakerStore? knownSpeakers = null)
     {
         _config = (configService ?? new ConfigService()).Load();
         // The engine is always injected by the host, which also owns the single EngineIpcServer.
         _engine = engine;
+        // Cross-session roster feeding the rename dialog's name suggestions. Fall back to a direct
+        // store (mirrors SpeakerManagementViewModel) so the view-model stays constructable without DI.
+        _knownSpeakers = knownSpeakers ?? new SqliteKnownSpeakerStore(new SqliteDatabase(_config.DatabasePath));
         _uiContext = SynchronizationContext.Current;
         _outputFolder = _config.TranscriptFolder;
 
@@ -62,12 +71,16 @@ public sealed class MainWindowViewModel : ObservableObject
         PrevMatchCommand = new RelayCommand(() => StepMatch(-1));
         CitationCommand = new RelayCommand<string>(NavigateToTimestamp);
         RenameSpeakerCommand = new AsyncRelayCommand<TranscriptRowViewModel>(ExecuteRenameSpeakerAsync);
+        DeleteLineCommand = new AsyncRelayCommand<TranscriptRowViewModel>(ExecuteDeleteLineAsync);
+        UndoCommand = new AsyncRelayCommand(UndoLastAsync, () => _undoStack.Count > 0);
         CopyTranscriptCommand = new RelayCommand(CopyTranscript, () => Transcript.Count > 0);
+        GenerateNotesCommand = new AsyncRelayCommand(GenerateNotesAsync, () => Transcript.Count > 0);
 
         Transcript.CollectionChanged += (_, _) =>
         {
             OnPropertyChanged(nameof(ShowIdlePanel));
             CopyTranscriptCommand.RaiseCanExecuteChanged();
+            GenerateNotesCommand.RaiseCanExecuteChanged();
         };
         RunPreflightChecks();
     }
@@ -79,7 +92,60 @@ public sealed class MainWindowViewModel : ObservableObject
     /// <summary>Shell sets this to show the rename dialog; returns the chosen name+scope or null on cancel.</summary>
     public Func<SpeakerRenameRequest, SpeakerRenameResult?>? ShowSpeakerRenameDialog { get; set; }
 
+    /// <summary>Shell sets this to show the generated-notes preview window (markdown, suggested filename).</summary>
+    public Action<string, string>? ShowGenerateNotesPreview { get; set; }
+
     public AsyncRelayCommand<TranscriptRowViewModel> RenameSpeakerCommand { get; }
+
+    /// <summary>Deletes one transcript line (the ✕ button / context menu). Undoable via <see cref="UndoCommand"/>.</summary>
+    public AsyncRelayCommand<TranscriptRowViewModel> DeleteLineCommand { get; }
+
+    // === Undo (rename or delete — button + Ctrl+Z) ===
+
+    /// <summary>In-memory, session-scoped stack of inverse actions (renames and line deletes). Each entry
+    /// restores both the persisted store write and the affected rows' visible state. Cleared when the
+    /// transcript is swapped.</summary>
+    private readonly Stack<(string Label, Func<Task> UndoAsync)> _undoStack = new();
+
+    /// <summary>Event ids that currently carry a per-event override, so a repeated "this one" rename
+    /// on the same line undoes to its previous override value rather than clearing it.</summary>
+    private readonly HashSet<string> _eventsWithOverride = new(StringComparer.Ordinal);
+
+    /// <summary>Reverts the most recent undoable action — a rename or a line delete (see <see cref="_undoStack"/>).</summary>
+    public AsyncRelayCommand UndoCommand { get; }
+
+    public string UndoTooltip => _undoStack.Count > 0
+        ? $"Undo {_undoStack.Peek().Label} (Ctrl+Z)"
+        : "Nothing to undo";
+
+    private void RaiseUndoChanged()
+    {
+        UndoCommand.RaiseCanExecuteChanged();
+        OnPropertyChanged(nameof(UndoTooltip));
+    }
+
+    private void PushUndo(string label, Func<Task> undoAsync)
+    {
+        _undoStack.Push((label, undoAsync));
+        RaiseUndoChanged();
+    }
+
+    /// <summary>Drops all pending undos. Called whenever the displayed transcript is swapped or reset.</summary>
+    private void ClearUndoHistory()
+    {
+        if (_undoStack.Count == 0 && _eventsWithOverride.Count == 0) return;
+        _undoStack.Clear();
+        _eventsWithOverride.Clear();
+        RaiseUndoChanged();
+    }
+
+    private async Task UndoLastAsync()
+    {
+        if (_undoStack.Count == 0) return;
+        var entry = _undoStack.Pop();
+        await entry.UndoAsync();
+        RaiseUndoChanged();
+    }
 
     // === Copy transcript ===
 
@@ -123,6 +189,113 @@ public sealed class MainWindowViewModel : ObservableObject
         TranscriptCopiedFlash = false;
     }
 
+    // === Generate Notes (full AI meeting-notes document) ===
+
+    private bool _isGeneratingNotes;
+
+    /// <summary>Builds a full meeting-notes document from the displayed transcript + project context,
+    /// via the currently configured agent backend driven as a bounded one-shot. Usable live or in review.</summary>
+    public AsyncRelayCommand GenerateNotesCommand { get; }
+
+    /// <summary>True while a document is being generated — drives the button's "Generating…" state.</summary>
+    public bool IsGeneratingNotes
+    {
+        get => _isGeneratingNotes;
+        private set => SetProperty(ref _isGeneratingNotes, value);
+    }
+
+    private async Task GenerateNotesAsync()
+    {
+        if (Transcript.Count == 0) return;
+
+        try
+        {
+            ErrorText = "";
+            IsGeneratingNotes = true;
+
+            var config = new ConfigService().Load();
+
+            var pack = await new MarkdownContextPackService().LoadAsync(new ContextPackOptions
+            {
+                ContextFolder = config.Agent.ContextFolder,
+                MaxTotalCharacters = config.Agent.MaxContextCharacters,
+                RequiredFiles = config.Agent.RequiredContextFiles
+            }).ConfigureAwait(true);
+
+            string fullPrompt = BuildNotesPrompt(ReadEmbeddedNotesPrompt(), pack.CombinedText);
+
+            // Offload the sync factory work (WSL probing etc.) off the UI thread, like StartVoiceAsync.
+            string markdown = await Task.Run(() =>
+                new MeetingNotesGenerator().GenerateAsync(fullPrompt, config, new SecretsService()))
+                .ConfigureAwait(true);
+
+            markdown += BuildNotesFooter(config);
+
+            string sessionKey = ReviewSessionId
+                ?? (string.IsNullOrEmpty(SessionId) ? DateTime.Now.ToString("yyyyMMdd") : SessionId);
+            ShowGenerateNotesPreview?.Invoke(markdown, $"generated-notes-{sessionKey}.md");
+        }
+        catch (Exception ex)
+        {
+            ErrorText = $"Generate notes failed: {ex.Message}";
+            AppLog.Warn("app", $"GenerateNotes failed: {ex.Message}");
+        }
+        finally
+        {
+            IsGeneratingNotes = false;
+        }
+    }
+
+    /// <summary>Assembles the one-shot prompt: an override preamble neutralising the backend's baked-in
+    /// "be brief" instruction, the embedded notetaker prompt, then the transcript + context source material.</summary>
+    private string BuildNotesPrompt(string promptBody, string contextText)
+    {
+        var sb = new StringBuilder();
+        sb.AppendLine("Follow the instructions below exactly to produce a complete meeting-notes document. "
+            + "Disregard any earlier instruction to be brief or conversational; output only the finished Markdown notes.");
+        sb.AppendLine();
+        sb.AppendLine(promptBody);
+        sb.AppendLine();
+        sb.AppendLine("============================================================");
+        sb.AppendLine("SOURCE MATERIAL");
+        sb.AppendLine("============================================================");
+        sb.AppendLine();
+        sb.AppendLine("## Meeting transcript");
+        foreach (var row in Transcript)
+        {
+            sb.Append('[').Append(row.Time).Append("] ").Append(row.SpeakerName).Append(": ").AppendLine(row.Text);
+        }
+        sb.AppendLine();
+        sb.AppendLine("## Project context");
+        sb.AppendLine(string.IsNullOrWhiteSpace(contextText) ? "(none)" : contextText);
+        return sb.ToString();
+    }
+
+    /// <summary>Records the actual backend used, so a shared document is self-describing.</summary>
+    private static string BuildNotesFooter(AppConfig config)
+    {
+        string provider = config.Agent.Provider;
+        bool claudeBrain = AgentProviders.Is(provider, AgentProvider.ClaudeCli)
+            || AgentProviders.Is(provider, AgentProvider.Hybrid);
+        string model = claudeBrain
+            ? (string.IsNullOrWhiteSpace(config.Agent.ClaudeCli.Model) ? "default" : config.Agent.ClaudeCli.Model)
+            : config.Agent.Realtime.Model;
+        string voiceMode = config.Agent.Realtime.VoiceMode;
+        return $"\n\n---\n\n<sub>Generated by LocalTranscriber · {provider} · model {model} · "
+            + $"voice mode {voiceMode} · {DateTime.Now:yyyy-MM-dd HH:mm}</sub>";
+    }
+
+    private static string ReadEmbeddedNotesPrompt()
+    {
+        var asm = Assembly.GetExecutingAssembly();
+        string name = asm.GetManifestResourceNames()
+            .FirstOrDefault(n => n.EndsWith("generate-notes-prompt.md", StringComparison.OrdinalIgnoreCase))
+            ?? throw new InvalidOperationException("Embedded prompt 'generate-notes-prompt.md' not found.");
+        using var stream = asm.GetManifestResourceStream(name)!;
+        using var reader = new StreamReader(stream);
+        return reader.ReadToEnd();
+    }
+
     private async Task ExecuteRenameSpeakerAsync(TranscriptRowViewModel row)
     {
         if (!row.CanRename) return;
@@ -135,25 +308,62 @@ public sealed class MainWindowViewModel : ObservableObject
             ? Transcript.Count(r => r.SpeakerId == matchId)
             : Transcript.Count(r => r.SpeakerName == oldName);
 
-        var request = new SpeakerRenameRequest(oldName, _sessionSpeakerNames, occurrenceCount);
+        var suggestions = await BuildRenameSuggestionsAsync(oldName);
+        var request = new SpeakerRenameRequest(oldName, suggestions, occurrenceCount, wasUnknown);
         SpeakerRenameResult? result = ShowSpeakerRenameDialog?.Invoke(request);
         if (result is null || string.IsNullOrWhiteSpace(result.NewName) || result.NewName.Trim() == oldName) return;
 
         string trimmed = result.NewName.Trim();
+        string sid = _sessionId;
         var newBrush = Services.SpeakerPalette.GetBrushForName(trimmed);
+
+        // Prior visual state of a row, captured before we mutate it so undo can restore it exactly.
+        var snapshots = new List<(TranscriptRowViewModel Row, string Name, bool Unknown, System.Windows.Media.Brush Brush)>();
+        void ApplyTo(TranscriptRowViewModel r, bool clearUnknown)
+        {
+            snapshots.Add((r, r.SpeakerName, r.IsUnknownSpeaker, r.SpeakerBrush));
+            r.SpeakerName = trimmed;
+            if (clearUnknown) r.IsUnknownSpeaker = false;
+            r.SpeakerBrush = newBrush;
+        }
+        void RestoreSnapshots()
+        {
+            foreach (var s in snapshots)
+            {
+                s.Row.SpeakerName = s.Name;
+                s.Row.IsUnknownSpeaker = s.Unknown;
+                s.Row.SpeakerBrush = s.Brush;
+            }
+        }
 
         if (result.Scope == RenameScope.ThisOne)
         {
-            bool ok = await _engine.OverrideEventSpeakerAsync(_sessionId, row.EventId, trimmed);
+            bool ok = await _engine.OverrideEventSpeakerAsync(sid, row.EventId, trimmed);
             if (!ok) return;
 
-            row.SpeakerName = trimmed;
-            row.IsUnknownSpeaker = false;
-            row.SpeakerBrush = newBrush;
+            bool hadPriorOverride = _eventsWithOverride.Contains(row.EventId);
+            string priorName = oldName;
+            string eventId = row.EventId;
+            ApplyTo(row, clearUnknown: true);
+            _eventsWithOverride.Add(eventId);
+
+            PushUndo($"rename → {oldName}", async () =>
+            {
+                if (hadPriorOverride)
+                {
+                    await _engine.OverrideEventSpeakerAsync(sid, eventId, priorName);
+                }
+                else
+                {
+                    await _engine.ClearEventSpeakerOverrideAsync(sid, eventId);
+                    _eventsWithOverride.Remove(eventId);
+                }
+                RestoreSnapshots();
+            });
         }
         else
         {
-            // All — existing behavior: enroll/rename globally and update every matching row.
+            // All — enroll/rename globally and update every matching row.
             if (wasUnknown)
             {
                 bool ok = await _engine.NameSessionSpeakerAsync(oldName, trimmed);
@@ -161,7 +371,14 @@ public sealed class MainWindowViewModel : ObservableObject
             }
             else
             {
-                await _engine.RenameKnownSpeakerAsync(oldName, trimmed);
+                // A known-speaker rename is refused when the target name already belongs to a
+                // different saved speaker (see SqliteKnownSpeakerStore.RenameAsync). Leave the
+                // transcript untouched rather than showing a name the store rejected.
+                if (!await _engine.RenameKnownSpeakerAsync(oldName, trimmed))
+                {
+                    ErrorText = $"Couldn't rename to \"{trimmed}\": that name is already used by another saved speaker.";
+                    return;
+                }
             }
 
             foreach (var r in Transcript)
@@ -169,20 +386,110 @@ public sealed class MainWindowViewModel : ObservableObject
                 bool isTarget = wasUnknown ? r.SpeakerId == matchId : r.SpeakerName == oldName;
                 if (isTarget)
                 {
-                    r.SpeakerName = trimmed;
-                    r.IsUnknownSpeaker = false;
-                    r.SpeakerBrush = newBrush;
+                    ApplyTo(r, clearUnknown: true);
                 }
                 else if (r.SpeakerName == trimmed)
                 {
                     // Another row already bearing this name — unify their brush.
+                    snapshots.Add((r, r.SpeakerName, r.IsUnknownSpeaker, r.SpeakerBrush));
                     r.SpeakerBrush = newBrush;
                 }
+            }
+
+            if (wasUnknown)
+            {
+                // Enroll case: undo removes the session alias (voice sample intentionally left) and restores rows.
+                PushUndo($"rename → {oldName}", async () =>
+                {
+                    await _engine.ClearSessionSpeakerAliasAsync(sid, matchId);
+                    RestoreSnapshots();
+                });
+            }
+            else
+            {
+                // Global known-speaker rename: undo renames back and restores rows.
+                PushUndo($"rename → {oldName}", async () =>
+                {
+                    await _engine.RenameKnownSpeakerAsync(trimmed, oldName);
+                    RestoreSnapshots();
+                });
             }
         }
 
         if (!_sessionSpeakerNames.Contains(trimmed, StringComparer.OrdinalIgnoreCase))
             _sessionSpeakerNames.Add(trimmed);
+    }
+
+    /// <summary>Names offered in the rename dialog, most-likely first and deduped case-insensitively:
+    /// people already named in this session, then "Me", then the persisted cross-session roster
+    /// ordered by most-recently-seen. Excludes the name being changed and any placeholder labels of
+    /// still-unidentified rows. Surfacing the full roster lets a rename re-link to an existing voice
+    /// identity instead of spawning a duplicate from a retyped name.</summary>
+    private async Task<IReadOnlyList<string>> BuildRenameSuggestionsAsync(string currentName)
+    {
+        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var ordered = new List<string>();
+        void Add(string? name)
+        {
+            if (string.IsNullOrWhiteSpace(name)) return;
+            string trimmed = name.Trim();
+            if (string.Equals(trimmed, currentName, StringComparison.OrdinalIgnoreCase)) return;
+            if (seen.Add(trimmed)) ordered.Add(trimmed);
+        }
+
+        // 1. Other people already named in this meeting (the likeliest candidates), skipping the
+        //    placeholder labels of rows that are still unidentified ("Speaker 2").
+        var placeholders = new HashSet<string>(
+            Transcript.Where(r => r.IsUnknownSpeaker).Select(r => r.SpeakerName),
+            StringComparer.OrdinalIgnoreCase);
+        foreach (string name in _sessionSpeakerNames)
+        {
+            if (!placeholders.Contains(name)) Add(name);
+        }
+
+        // 2. The microphone owner.
+        Add(_config.DefaultMicSpeakerName);
+
+        // 3. The persisted roster, most-recently-seen first. A read failure must never block a
+        //    rename, so fall back to the session names gathered above.
+        try
+        {
+            var roster = await _knownSpeakers.ListAsync();
+            foreach (var s in roster.OrderByDescending(s => s.LastSeenAt ?? DateTimeOffset.MinValue))
+            {
+                Add(s.DisplayName);
+            }
+        }
+        catch
+        {
+            // Intentionally swallowed: suggestions are a convenience, not a correctness gate.
+        }
+
+        return ordered;
+    }
+
+    // === Delete transcript line (✕ button / context menu) ===
+
+    private async Task ExecuteDeleteLineAsync(TranscriptRowViewModel row)
+    {
+        int index = Transcript.IndexOf(row);
+        if (index < 0) return;
+
+        var e = row.Event;
+        string sid = _sessionId;
+        if (!await _engine.DeleteEventAsync(sid, row.EventId)) return;
+
+        Transcript.RemoveAt(index);
+        if (_reviewSearchText.Trim().Length > 0) RecomputeMatches();
+
+        string snippet = row.Text.Length > 24 ? row.Text[..24] + "…" : row.Text;
+        PushUndo($"delete → \"{snippet}\"", async () =>
+        {
+            await _engine.RestoreEventAsync(e);
+            int at = Math.Min(index, Transcript.Count);
+            Transcript.Insert(at, row);
+            if (_reviewSearchText.Trim().Length > 0) RecomputeMatches();
+        });
     }
 
     // === Session title ===
@@ -302,6 +609,7 @@ public sealed class MainWindowViewModel : ObservableObject
         }
 
         Transcript.Clear();
+        ClearUndoHistory();
         SpeakerPalette.Reset();
         foreach (var e in events)
         {
@@ -329,6 +637,7 @@ public sealed class MainWindowViewModel : ObservableObject
         if (IsReviewing) CloseReview();
 
         Transcript.Clear();
+        ClearUndoHistory();
         SpeakerPalette.Reset();
         _sessionSpeakerNames.Clear();
 
@@ -355,6 +664,7 @@ public sealed class MainWindowViewModel : ObservableObject
         _continueRecord = null;
         ContinueBannerText = "";
         Transcript.Clear();
+        ClearUndoHistory();
         SessionId = "";
         SessionTitle = "";
         CurrentJsonlPath = null;
@@ -371,6 +681,7 @@ public sealed class MainWindowViewModel : ObservableObject
         }
 
         Transcript.Clear();
+        ClearUndoHistory();
         ReviewSessionId = null;
         _reviewJsonlPath = null;
         ReviewMetaText = "";
@@ -740,6 +1051,7 @@ public sealed class MainWindowViewModel : ObservableObject
             if (!isContinuation)
             {
                 Transcript.Clear();
+                ClearUndoHistory();
                 SpeakerPalette.Reset();
             }
 

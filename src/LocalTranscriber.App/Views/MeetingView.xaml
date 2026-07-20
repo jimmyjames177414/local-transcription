@@ -154,23 +154,30 @@
                             </TextBlock.Style>
                         </TextBlock>
                     </Grid>
-                    <Button Grid.Column="2" Padding="4,0" Margin="0,0,2,0"
-                            Background="Transparent" BorderThickness="0" FontSize="10"
-                            Command="{Binding Session.CopyTranscriptCommand}"
-                            ToolTip="Copy transcript to clipboard">
-                        <Button.Style>
-                            <Style TargetType="Button">
-                                <Setter Property="Foreground" Value="{StaticResource Brush.Text.Faint}" />
-                                <Setter Property="Content" Value="⎘ Copy" />
-                                <Style.Triggers>
-                                    <DataTrigger Binding="{Binding Session.TranscriptCopiedFlash}" Value="True">
-                                        <Setter Property="Content" Value="✓ Copied" />
-                                        <Setter Property="Foreground" Value="{StaticResource Brush.Privacy.Local}" />
-                                    </DataTrigger>
-                                </Style.Triggers>
-                            </Style>
-                        </Button.Style>
-                    </Button>
+                    <StackPanel Grid.Column="2" Orientation="Horizontal">
+                        <Button Padding="4,0" Margin="0,0,2,0"
+                                Background="Transparent" BorderThickness="0" FontSize="10"
+                                Foreground="{StaticResource Brush.Text.Faint}" Content="↶ Undo"
+                                Command="{Binding Session.UndoCommand}"
+                                ToolTip="{Binding Session.UndoTooltip}" />
+                        <Button Padding="4,0" Margin="0,0,2,0"
+                                Background="Transparent" BorderThickness="0" FontSize="10"
+                                Command="{Binding Session.CopyTranscriptCommand}"
+                                ToolTip="Copy transcript to clipboard">
+                            <Button.Style>
+                                <Style TargetType="Button">
+                                    <Setter Property="Foreground" Value="{StaticResource Brush.Text.Faint}" />
+                                    <Setter Property="Content" Value="⎘ Copy" />
+                                    <Style.Triggers>
+                                        <DataTrigger Binding="{Binding Session.TranscriptCopiedFlash}" Value="True">
+                                            <Setter Property="Content" Value="✓ Copied" />
+                                            <Setter Property="Foreground" Value="{StaticResource Brush.Privacy.Local}" />
+                                        </DataTrigger>
+                                    </Style.Triggers>
+                                </Style>
+                            </Button.Style>
+                        </Button>
+                    </StackPanel>
                     <Button Grid.Column="3" Content="transcripts ↗" Click="OpenTranscriptsFolder_Click" Cursor="Hand"
                             Background="Transparent" BorderThickness="0" Foreground="{StaticResource Brush.Text.Faint}"
                             FontSize="10" Padding="4,0" />
@@ -183,6 +190,7 @@
                 <Grid>
                     <Grid.ColumnDefinitions>
                         <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="Auto" />
                         <ColumnDefinition Width="Auto" />
                         <ColumnDefinition Width="Auto" />
                         <ColumnDefinition Width="Auto" />
@@ -211,7 +219,10 @@
                             Command="{Binding Session.PrevMatchCommand}" ToolTip="Previous match" />
                     <Button Grid.Column="3" Content="▼" FontSize="8" Padding="6,4" Style="{StaticResource SubtleButtonStyle}"
                             Command="{Binding Session.NextMatchCommand}" Margin="3,0,0,0" ToolTip="Next match" />
-                    <Button Grid.Column="4" Padding="6,4" Margin="3,0,0,0"
+                    <Button Grid.Column="4" Content="↶ Undo" Padding="6,4" Margin="3,0,0,0" Style="{StaticResource SubtleButtonStyle}"
+                            Command="{Binding Session.UndoCommand}"
+                            ToolTip="{Binding Session.UndoTooltip}" />
+                    <Button Grid.Column="5" Padding="6,4" Margin="3,0,0,0"
                             Command="{Binding Session.CopyTranscriptCommand}"
                             ToolTip="Copy transcript to clipboard">
                         <Button.Style>
@@ -285,6 +296,7 @@
                 <Border BorderBrush="{StaticResource Brush.Stroke}" BorderThickness="0,0,1,0">
                     <ListBox x:Name="TranscriptList"
                              ItemsSource="{Binding Session.Transcript}"
+                             Tag="editable"
                              Background="Transparent" BorderThickness="0"
                              Padding="8,10"
                              ScrollViewer.HorizontalScrollBarVisibility="Disabled"
@@ -944,6 +956,20 @@
                     <StackPanel Grid.Column="2" Orientation="Horizontal">
                         <Button x:Name="CompactChatButton" Content="◂ Chat" Style="{StaticResource SubtleButtonStyle}" Padding="9,2"
                                 Margin="0,0,6,0" FontSize="9.5" Visibility="Collapsed" Click="CompactShowChat_Click" />
+                        <Button Padding="9,2" Margin="0,0,4,0" FontSize="9.5"
+                                Command="{Binding Session.GenerateNotesCommand}"
+                                ToolTip="Generate a full meeting-notes document from the transcript and context">
+                            <Button.Style>
+                                <Style TargetType="Button" BasedOn="{StaticResource SubtleButtonStyle}">
+                                    <Setter Property="Content" Value="✦ Generate notes" />
+                                    <Style.Triggers>
+                                        <DataTrigger Binding="{Binding Session.IsGeneratingNotes}" Value="True">
+                                            <Setter Property="Content" Value="Generating…" />
+                                        </DataTrigger>
+                                    </Style.Triggers>
+                                </Style>
+                            </Button.Style>
+                        </Button>
                         <Button Padding="9,2" Margin="0,0,4,0" FontSize="9.5"
                                 Click="NotesEditToggle_Click">
                             <Button.Style>

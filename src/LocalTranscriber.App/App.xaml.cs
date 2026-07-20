@@ -40,7 +40,8 @@ public partial class App : Application
         builder.Services.AddSingleton(sp => new EngineIpcServer(sp.GetRequiredService<ITranscriptionEngine>()));
 
         builder.Services.AddSingleton(sp => new MainWindowViewModel(
-            sp.GetRequiredService<ITranscriptionEngine>(), sp.GetRequiredService<ConfigService>()));
+            sp.GetRequiredService<ITranscriptionEngine>(), sp.GetRequiredService<ConfigService>(),
+            sp.GetRequiredService<IKnownSpeakerStore>()));
         builder.Services.AddSingleton(sp => new SettingsViewModel(sp.GetRequiredService<ConfigService>()));
         builder.Services.AddSingleton(sp => new SpeakerManagementViewModel(
             store: sp.GetRequiredService<IKnownSpeakerStore>(),

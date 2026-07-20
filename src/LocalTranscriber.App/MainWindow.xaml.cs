@@ -61,6 +61,9 @@ public partial class MainWindow : Window
             return dlg.ShowDialog() == true ? dlg.Result : null;
         };
 
+        Session.ShowGenerateNotesPreview = (markdown, suggestedName) =>
+            new Views.Dialogs.GenerateNotesPreviewWindow(markdown, suggestedName) { Owner = this }.ShowDialog();
+
         InitializeComponent();
         DataContext = this;
         StateChanged += (_, _) => UpdateMaximizeGlyph();
@@ -195,6 +198,20 @@ public partial class MainWindow : Window
     /// <summary>Space is hold-to-talk anywhere except while typing in a text box.</summary>
     private void OnPreviewKeyDown(object sender, KeyEventArgs e)
     {
+        // Ctrl+Z on the Meeting screen undoes the last rename or line delete. The TextBoxBase guard
+        // preserves native text undo in the title / chat / rename fields.
+        if (e.Key == Key.Z && Keyboard.Modifiers == ModifierKeys.Control
+            && Keyboard.FocusedElement is not TextBoxBase
+            && Session.SelectedScreenIndex == (int)ViewModels.AppScreen.Meeting)
+        {
+            if (Session.UndoCommand.CanExecute(null))
+            {
+                Session.UndoCommand.Execute(null);
+            }
+            e.Handled = true;
+            return;
+        }
+
         if (e.Key != Key.Space || e.IsRepeat || Keyboard.FocusedElement is TextBoxBase)
         {
             return;

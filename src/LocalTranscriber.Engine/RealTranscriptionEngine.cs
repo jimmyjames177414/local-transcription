@@ -614,6 +614,38 @@ public sealed class RealTranscriptionEngine : ITranscriptionEngine, IAsyncDispos
         return true;
     }
 
+    public async Task<bool> ClearEventSpeakerOverrideAsync(string sessionId, string eventId, CancellationToken cancellationToken = default)
+    {
+        if (_overrideStore is null || string.IsNullOrWhiteSpace(sessionId) || string.IsNullOrWhiteSpace(eventId))
+            return false;
+
+        await _overrideStore.DeleteAsync(sessionId, eventId, cancellationToken).ConfigureAwait(false);
+        return true;
+    }
+
+    public async Task<bool> ClearSessionSpeakerAliasAsync(string sessionId, string sessionSpeakerId, CancellationToken cancellationToken = default)
+    {
+        if (_aliasStore is null || string.IsNullOrWhiteSpace(sessionId) || string.IsNullOrWhiteSpace(sessionSpeakerId))
+            return false;
+
+        await _aliasStore.DeleteAsync(sessionId, sessionSpeakerId, cancellationToken).ConfigureAwait(false);
+        return true;
+    }
+
+    public async Task<bool> DeleteEventAsync(string sessionId, string eventId, CancellationToken cancellationToken = default)
+    {
+        if (_eventStore is null || string.IsNullOrWhiteSpace(eventId)) return false;
+        await _eventStore.DeleteAsync(eventId, cancellationToken).ConfigureAwait(false);
+        return true;
+    }
+
+    public async Task<bool> RestoreEventAsync(TranscriptEvent transcriptEvent, CancellationToken cancellationToken = default)
+    {
+        if (_eventStore is null) return false;
+        await _eventStore.InsertAsync(transcriptEvent, cancellationToken).ConfigureAwait(false);
+        return true;
+    }
+
     public async Task UpdateSessionTitleAsync(string sessionId, string? title, CancellationToken cancellationToken = default)
     {
         if (_sessionStore is not null)

@@ -69,6 +69,9 @@ public class MinutesExportHookTests : IAsyncLifetime
         public Task DeleteBySessionAsync(string sessionId, CancellationToken cancellationToken = default)
             => throw new NotSupportedException();
 
+        public Task DeleteAsync(string eventId, CancellationToken cancellationToken = default)
+            => throw new NotSupportedException();
+
         public Task<IReadOnlyList<string>> SearchSessionIdsAsync(string text, CancellationToken cancellationToken = default)
             => throw new NotSupportedException();
     }

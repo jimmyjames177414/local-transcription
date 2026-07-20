@@ -221,6 +221,15 @@ public sealed class SqliteTranscriptEventStore : ITranscriptEventStore
         await cmd.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
     }
 
+    public async Task DeleteAsync(string eventId, CancellationToken cancellationToken = default)
+    {
+        using var connection = _db.OpenConnection();
+        using var cmd = connection.CreateCommand();
+        cmd.CommandText = "DELETE FROM transcript_events WHERE id = $id";
+        cmd.Parameters.AddWithValue("$id", eventId);
+        await cmd.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+    }
+
     public async Task<IReadOnlyList<string>> SearchSessionIdsAsync(string text, CancellationToken cancellationToken = default)
     {
         text = text.Trim();
@@ -300,6 +309,16 @@ public sealed class SqliteKnownSpeakerStore : IKnownSpeakerStore
         if (existing is null)
         {
             return false; // Unknown speaker — use the session list to name a live speaker, or speakers enroll for a WAV sample.
+        }
+
+        // Refuse to rename onto a name already held by a *different* speaker: that would leave two
+        // roster rows sharing a display name, and names resolve to identities by name elsewhere. A
+        // case-only change of the same speaker (e.g. "bob" -> "Bob") is allowed. Merging two distinct
+        // identities is a separate, deliberate operation (forget one first).
+        var target = await GetByNameAsync(toName, cancellationToken).ConfigureAwait(false);
+        if (target is not null && !string.Equals(target.Id, existing.Id, StringComparison.Ordinal))
+        {
+            return false;
         }
 
         using var connection = _db.OpenConnection();
@@ -460,6 +479,16 @@ public sealed class SqliteSpeakerAliasStore : ISpeakerAliasStore
             result.Add((reader.GetString(0), reader.GetString(1)));
         return result;
     }
+
+    public async Task DeleteAsync(string sessionId, string sessionSpeakerId, CancellationToken cancellationToken = default)
+    {
+        using var connection = _db.OpenConnection();
+        using var cmd = connection.CreateCommand();
+        cmd.CommandText = "DELETE FROM speaker_aliases WHERE session_id = $sid AND session_speaker_id = $ssid";
+        cmd.Parameters.AddWithValue("$sid", sessionId);
+        cmd.Parameters.AddWithValue("$ssid", sessionSpeakerId);
+        await cmd.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+    }
 }
 
 public sealed class SqliteEventSpeakerOverrideStore : IEventSpeakerOverrideStore
@@ -507,5 +536,15 @@ public sealed class SqliteEventSpeakerOverrideStore : IEventSpeakerOverrideStore
         while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
             result.Add((reader.GetString(0), reader.GetString(1)));
         return result;
+    }
+
+    public async Task DeleteAsync(string sessionId, string eventId, CancellationToken cancellationToken = default)
+    {
+        using var connection = _db.OpenConnection();
+        using var cmd = connection.CreateCommand();
+        cmd.CommandText = "DELETE FROM event_speaker_overrides WHERE session_id = $sid AND event_id = $eid";
+        cmd.Parameters.AddWithValue("$sid", sessionId);
+        cmd.Parameters.AddWithValue("$eid", eventId);
+        await cmd.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
     }
 }

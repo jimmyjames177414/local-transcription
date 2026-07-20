@@ -64,6 +64,37 @@ public class SqliteStoreTests : IDisposable
     }
 
     [Fact]
+    public async Task TranscriptEvents_Delete_RemovesOnlyTargetLineAndRestores()
+    {
+        var sessions = new SqliteSessionStore(_db);
+        await sessions.CreateAsync(new SessionRecord("s1", DateTimeOffset.Now, null, "a.txt", "a.jsonl", "recording"));
+
+        var store = new SqliteTranscriptEventStore(_db);
+        var e1 = new TranscriptEvent("e1", "s1", DateTimeOffset.Now,
+            new SpeakerLabel("speaker_1", "Speaker 1", false), AudioSourceType.SystemAudio,
+            "Hello.", 0.9, 0, 1500);
+        var e2 = e1 with { Id = "e2", Text = "World." };
+        await store.InsertAsync(e1);
+        await store.InsertAsync(e2);
+
+        // Delete only e1; the sibling survives.
+        await store.DeleteAsync("e1");
+        var afterDelete = await store.ListBySessionAsync("s1");
+        Assert.Single(afterDelete);
+        Assert.Equal("e2", afterDelete[0].Id);
+
+        // Deleting a non-existent id is a harmless no-op.
+        await store.DeleteAsync("nope");
+        Assert.Single(await store.ListBySessionAsync("s1"));
+
+        // Re-inserting (the undo path) round-trips the row back.
+        await store.InsertAsync(e1);
+        var restored = await store.ListBySessionAsync("s1");
+        Assert.Equal(2, restored.Count);
+        Assert.Contains(restored, r => r.Id == "e1" && r.Text == "Hello.");
+    }
+
+    [Fact]
     public async Task Sessions_TitleRoundTripsAndUpdates()
     {
         var store = new SqliteSessionStore(_db);
@@ -188,6 +219,34 @@ public class SqliteStoreTests : IDisposable
         Assert.True(await store.ForgetAsync("Joe"));
         Assert.Null(await store.GetByNameAsync("Joe"));
         Assert.False(await store.ForgetAsync("Joe"));
+    }
+
+    [Fact]
+    public async Task Rename_ToExistingName_IsRefusedAndDoesNotDuplicate()
+    {
+        var store = new SqliteKnownSpeakerStore(_db);
+        await store.CreateAsync("Alice");
+        await store.CreateAsync("Bob");
+
+        Assert.False(await store.RenameAsync("Alice", "Bob"));
+
+        var all = await store.ListAsync();
+        Assert.Equal(2, all.Count);
+        Assert.Single(all, s => s.DisplayName == "Alice");
+        Assert.Single(all, s => s.DisplayName == "Bob");
+    }
+
+    [Fact]
+    public async Task Rename_CaseOnlyChangeOfSameSpeaker_IsAllowed()
+    {
+        var store = new SqliteKnownSpeakerStore(_db);
+        await store.CreateAsync("bob");
+
+        Assert.True(await store.RenameAsync("bob", "Bob"));
+
+        var all = await store.ListAsync();
+        Assert.Single(all);
+        Assert.Equal("Bob", all[0].DisplayName);
     }
 
     [Fact]
@@ -370,6 +429,46 @@ public class SqliteStoreTests : IDisposable
         // Only one row for this (session, event) pair.
         var list = await store.ListForSessionAsync("s1");
         Assert.Single(list);
+    }
+
+    [Fact]
+    public async Task EventSpeakerOverrides_Delete_RemovesOnlyTargetAndUndoesRename()
+    {
+        var store = new SqliteEventSpeakerOverrideStore(_db);
+        await store.UpsertAsync("s1", "evt1", "Bob", null);
+        await store.UpsertAsync("s1", "evt2", "Carol", null);
+
+        Assert.Equal("Bob", await store.ResolveAsync("s1", "evt1"));
+
+        await store.DeleteAsync("s1", "evt1");
+
+        // The deleted override no longer resolves; the other is untouched.
+        Assert.Null(await store.ResolveAsync("s1", "evt1"));
+        Assert.Equal("Carol", await store.ResolveAsync("s1", "evt2"));
+        Assert.Single(await store.ListForSessionAsync("s1"));
+
+        // Deleting a non-existent override is a harmless no-op.
+        await store.DeleteAsync("s1", "evt-missing");
+    }
+
+    [Fact]
+    public async Task SpeakerAliases_Delete_RemovesOnlyTargetAndUndoesNaming()
+    {
+        var store = new SqliteSpeakerAliasStore(_db);
+        await store.UpsertAsync("s1", "session_speaker_1", "known_a");
+        await store.UpsertAsync("s1", "session_speaker_2", "known_b");
+
+        Assert.Equal("known_a", await store.ResolveAsync("s1", "session_speaker_1"));
+
+        await store.DeleteAsync("s1", "session_speaker_1");
+
+        // The deleted alias no longer resolves; the other is untouched.
+        Assert.Null(await store.ResolveAsync("s1", "session_speaker_1"));
+        Assert.Equal("known_b", await store.ResolveAsync("s1", "session_speaker_2"));
+        Assert.Single(await store.ListForSessionAsync("s1"));
+
+        // Deleting a non-existent alias is a harmless no-op.
+        await store.DeleteAsync("s1", "session_speaker_missing");
     }
 
     // ── SpeakerNameResolver — event override precedence ───────────────────────

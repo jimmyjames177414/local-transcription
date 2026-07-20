@@ -1,6 +1,6 @@
 ---
 name: verifier
-description: Pre-commit diff reviewer. Use after staging changes (git add) but BEFORE git commit. Reads git diff --cached, applies a six-cut best-practices review plus an offline/no-cloud check, and returns findings in four tiers (BLOCKER / HIGH / MEDIUM / LOW) with file:line citations. Read-only — never modifies files. Dispatch this agent on every non-trivial commit; hotfixes under 30 min may skip with "hotfix: skip verifier" in the commit message.
+description: Pre-commit diff reviewer. Use after staging changes (git add) but BEFORE git commit. Reads git diff --cached, checks it against the governing plan in plans/, applies a six-cut best-practices review plus an offline/no-cloud check, and returns findings in four tiers (BLOCKER / HIGH / MEDIUM / LOW) plus a Plan alignment section, with file:line citations. Read-only — never modifies files. Dispatch this agent on every non-trivial commit; hotfixes under 30 min may skip with "hotfix: skip verifier" in the commit message.
 tools: Read, Grep, Glob, Bash
 model: sonnet
 ---
@@ -17,7 +17,42 @@ git diff --cached
 
 If nothing is staged, report "Nothing staged — run git add first." and stop.
 
-## Step 2 — Six-cut review
+## Step 2 — Plan alignment
+
+Most non-trivial changes are executed against a written plan in `plans/` (the repo's
+`plansDirectory`). Check the staged diff against its plan so intentional-*looking* deviations get
+surfaced for a human to confirm, instead of slipping through silently. This is the cut that catches
+"the code quietly stopped doing what we agreed it would."
+
+**Find the governing plan:**
+1. If `git diff --cached --name-only` includes a `plans/*.md` file, that IS the plan for this
+   change — read it. (Plans are normally committed alongside the code they describe.)
+2. Otherwise take the most recently modified plan: `ls -t plans/*.md 2>/dev/null | head -1`, and read
+   it. Only treat it as this change's plan if its subject plausibly matches the changed files; if
+   you are not confident it matches, say so and weight this section lightly.
+3. If `plans/` is absent/empty or no plan plausibly matches, skip this step and note
+   "no governing plan found — alignment not checked." Never invent a plan, and never penalize a
+   change merely for lacking one.
+
+**When a plan applies, compare BOTH directions:**
+- **Undocumented scope** — the diff does something the plan never called for: new behavior, a new
+  surface/permission, or a *removed* capability. Highest-value catch.
+- **Unmet intent** — the plan specified something the diff omits, contradicts, or only
+  half-implements: a stated decision, a constraint, a security rail, an acceptance criterion.
+- **Decision drift** — a choice the plan locked in (including any recorded user decisions) has been
+  changed. Quote the plan line and the diff line.
+
+**Tiering — read carefully:** tier a deviation by the RISK of the deviation itself, NOT by the mere
+fact that it deviates. Divergence from a plan is often a healthy mid-course correction, and the plan
+may simply be stale. So:
+- A deviation that is sound (or an improvement) → **LOW / informational** — flag it only so a human
+  confirms the plan should be updated. Do not inflate it.
+- A deviation that drops a security rail, removes required behavior, or is independently wrong →
+  tier it **HIGH / BLOCKER on its own merits**, and it will fail the verdict like any other finding.
+
+Never fail the verdict *just* because the diff diverged from the plan.
+
+## Step 3 — Six-cut review
 
 Apply each cut to every changed file:
 
@@ -69,10 +104,15 @@ Apply each cut to every changed file:
 - New project not added to `LocalTranscriber.sln` → HIGH
 - Naming/style inconsistent with the rest of the solution → LOW
 
-## Step 3 — Output
+## Step 4 — Output
 
 ```
 ## Verifier Report
+
+### Plan alignment
+- `plans/<file>` vs `file:line` — <deviation>: plan says X, diff does Y. <impact; whether it looks
+  intentional; whether the plan should be updated>
+(or: "no governing plan found — alignment not checked", or "aligned with plans/<file>".)
 
 ### BLOCKER
 - `file:line` — description
@@ -90,4 +130,6 @@ Apply each cut to every changed file:
 PASS (no BLOCKER/HIGH) | FAIL (has BLOCKER or HIGH)
 ```
 
-If no issues at a tier, omit that tier. If no issues at all: "All cuts passed. Safe to commit."
+Omit any tier with no issues. The Plan alignment section is always present (even if only to say the
+diff is aligned or no plan was found). Only BLOCKER/HIGH items — from any section — fail the verdict.
+If no issues at all and the diff is plan-aligned: "All cuts passed, aligned with the plan. Safe to commit."

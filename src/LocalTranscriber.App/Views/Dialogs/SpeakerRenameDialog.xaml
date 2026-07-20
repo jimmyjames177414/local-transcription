@@ -4,7 +4,49 @@
         Title="Name this speaker"
         WindowStartupLocation="CenterOwner"
         WindowStyle="None" AllowsTransparency="True" Background="Transparent"
-        SizeToContent="Height" Width="380" ResizeMode="NoResize" ShowInTaskbar="False">
+        SizeToContent="Height" Width="400" ResizeMode="NoResize" ShowInTaskbar="False">
+
+    <Window.Resources>
+        <!-- Scope choice rendered as a prominent selectable card (title + description). -->
+        <Style x:Key="ScopeCardStyle" TargetType="RadioButton">
+            <Setter Property="Margin" Value="0,0,0,6" />
+            <Setter Property="Cursor" Value="Hand" />
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="RadioButton">
+                        <Border x:Name="Card" CornerRadius="9" Padding="12,10"
+                                Background="{StaticResource Brush.Bg.Input}"
+                                BorderBrush="{StaticResource Brush.Stroke.Soft}" BorderThickness="1.5">
+                            <Grid>
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="Auto" />
+                                    <ColumnDefinition Width="*" />
+                                </Grid.ColumnDefinitions>
+                                <Border x:Name="Ring" Grid.Column="0" Width="16" Height="16" CornerRadius="8"
+                                        BorderBrush="{StaticResource Brush.Stroke.Hi}" BorderThickness="1.5"
+                                        VerticalAlignment="Top" Margin="0,1,11,0">
+                                    <Ellipse x:Name="Dot" Width="8" Height="8"
+                                             Fill="{StaticResource Brush.Accent.Text}" Visibility="Collapsed" />
+                                </Border>
+                                <ContentPresenter Grid.Column="1" ContentSource="Content" />
+                            </Grid>
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="Card" Property="BorderBrush" Value="{StaticResource Brush.Stroke.Hi}" />
+                            </Trigger>
+                            <Trigger Property="IsChecked" Value="True">
+                                <Setter TargetName="Card" Property="Background" Value="{StaticResource Brush.Accent.Bg}" />
+                                <Setter TargetName="Card" Property="BorderBrush" Value="{StaticResource Brush.Accent.Border}" />
+                                <Setter TargetName="Ring" Property="BorderBrush" Value="{StaticResource Brush.Accent.Text}" />
+                                <Setter TargetName="Dot" Property="Visibility" Value="Visible" />
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+    </Window.Resources>
 
     <Border Background="{StaticResource Brush.Bg.Chrome}" BorderBrush="{StaticResource Brush.Stroke.Hi}"
             BorderThickness="1" CornerRadius="14" Margin="12">
@@ -15,37 +57,43 @@
             <TextBlock x:Name="PromptText" FontSize="13" FontWeight="SemiBold"
                        Foreground="{StaticResource Brush.Text.Title}" Margin="0,0,0,12" />
 
-            <!-- Quick-pick chips: previously used names (hidden when empty) -->
-            <StackPanel x:Name="SuggestionsPanel" Visibility="Collapsed" Margin="0,0,0,10">
-                <TextBlock Text="Previously named:" FontSize="10.5"
+            <!-- Editable: type-ahead over the full known-speaker roster, or free-type a new name. -->
+            <ComboBox x:Name="NameInput" Style="{StaticResource ComboBoxStyle}"
+                      IsEditable="True" IsTextSearchEnabled="True" StaysOpenOnEdit="True"
+                      FontSize="12" KeyDown="NameBox_KeyDown" />
+
+            <!-- Quick-pick chips: fill the name box with a likely name (hidden when empty) -->
+            <StackPanel x:Name="SuggestionsPanel" Visibility="Collapsed" Margin="0,10,0,0">
+                <TextBlock Text="Likely names - tap to fill:" FontSize="10.5"
                            Foreground="{StaticResource Brush.Text.Hint}" Margin="0,0,0,5" />
                 <WrapPanel x:Name="ChipsPanel" />
+                <TextBlock x:Name="MoreHint" Visibility="Collapsed" FontSize="10"
+                           Foreground="{StaticResource Brush.Text.Hint}" Margin="0,3,0,0" />
             </StackPanel>
 
-            <TextBox x:Name="NameBox" Style="{StaticResource TextInputStyle}"
-                     FontSize="12" Padding="10,7"
-                     KeyDown="NameBox_KeyDown" />
+            <!-- Scope choice: prominent cards, default chosen by the caller -->
+            <TextBlock Text="Apply to" FontSize="10.5" FontWeight="SemiBold"
+                       Foreground="{StaticResource Brush.Text.Hint}" Margin="0,14,0,7" />
+            <RadioButton x:Name="ScopeOne" GroupName="Scope" Style="{StaticResource ScopeCardStyle}">
+                <StackPanel>
+                    <TextBlock Text="Just this line" FontSize="12" FontWeight="SemiBold"
+                               Foreground="{StaticResource Brush.Text.Title}" />
+                    <TextBlock Text="Fix only the line you clicked. Leaves other lines and speaker memory unchanged."
+                               FontSize="10.5" Foreground="{StaticResource Brush.Text.Hint}"
+                               TextWrapping="Wrap" Margin="0,2,0,0" />
+                </StackPanel>
+            </RadioButton>
+            <RadioButton x:Name="ScopeAll" GroupName="Scope" Style="{StaticResource ScopeCardStyle}">
+                <StackPanel>
+                    <TextBlock x:Name="ScopeAllLabel" FontSize="12" FontWeight="SemiBold"
+                               Foreground="{StaticResource Brush.Text.Title}" />
+                    <TextBlock Text="Relabel this speaker everywhere and remember their voice for future sessions."
+                               FontSize="10.5" Foreground="{StaticResource Brush.Text.Hint}"
+                               TextWrapping="Wrap" Margin="0,2,0,0" />
+                </StackPanel>
+            </RadioButton>
 
-            <!-- Scope choice: always shown for non-mic speakers -->
-            <StackPanel Margin="0,12,0,0">
-                <TextBlock Text="Apply to:" FontSize="10.5"
-                           Foreground="{StaticResource Brush.Text.Hint}" Margin="0,0,0,6" />
-                <RadioButton x:Name="ScopeAll" GroupName="Scope" IsChecked="True"
-                             FontSize="11" Foreground="{StaticResource Brush.Text.Body}"
-                             Margin="0,0,0,4">
-                    <RadioButton.Content>
-                        <TextBlock x:Name="ScopeAllLabel" FontSize="11" />
-                    </RadioButton.Content>
-                </RadioButton>
-                <RadioButton x:Name="ScopeOne" GroupName="Scope"
-                             Content="Just this line"
-                             FontSize="11" Foreground="{StaticResource Brush.Text.Body}" />
-            </StackPanel>
-
-            <TextBlock Text="This name is saved to speaker memory and applied to future sessions."
-                       FontSize="10.5" Foreground="{StaticResource Brush.Text.Hint}"
-                       TextWrapping="Wrap" Margin="0,10,0,0" />
-            <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,14,0,0">
+            <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,12,0,0">
                 <Button Content="Cancel" Style="{StaticResource SubtleButtonStyle}"
                         Padding="16,7" IsCancel="True" />
                 <Button Content="Save" Style="{StaticResource PrimaryButtonStyle}"

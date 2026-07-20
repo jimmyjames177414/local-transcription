@@ -14,19 +14,30 @@ public partial class SpeakerRenameDialog : Window
         InitializeComponent();
         PromptText.Text = $"Who is \"{request.CurrentName}\"?";
 
-        string allLabel = request.OccurrenceCount == 1
+        ScopeAllLabel.Text = request.OccurrenceCount == 1
             ? $"Every \"{request.CurrentName}\" line (1 line)"
             : $"Every \"{request.CurrentName}\" line ({request.OccurrenceCount} lines)";
-        ScopeAllLabel.Text = allLabel;
 
-        NameBox.Focus();
+        // Default scope by intent: naming an unidentified speaker relabels every line (and enrolls
+        // their voice); correcting an already-named speaker defaults to the single clicked line.
+        if (request.IsCurrentlyUnknown)
+            ScopeAll.IsChecked = true;
+        else
+            ScopeOne.IsChecked = true;
+
+        // The full ranked roster backs the editable box's type-ahead; chips surface only the top few.
+        NameInput.ItemsSource = request.Suggestions;
+        NameInput.Focus();
         MouseLeftButtonDown += (_, _) => { try { DragMove(); } catch { } };
 
         if (request.Suggestions.Count > 0)
         {
             SuggestionsPanel.Visibility = Visibility.Visible;
+            const int maxChips = 8;
+            int shown = 0;
             foreach (string name in request.Suggestions)
             {
+                if (shown >= maxChips) break;
                 var chip = new Button
                 {
                     Content = name,
@@ -38,6 +49,14 @@ public partial class SpeakerRenameDialog : Window
                 };
                 chip.Click += Chip_Click;
                 ChipsPanel.Children.Add(chip);
+                shown++;
+            }
+
+            int overflow = request.Suggestions.Count - shown;
+            if (overflow > 0)
+            {
+                MoreHint.Text = $"+{overflow} more - type to search";
+                MoreHint.Visibility = Visibility.Visible;
             }
         }
     }
@@ -47,18 +66,18 @@ public partial class SpeakerRenameDialog : Window
 
     private void Chip_Click(object sender, RoutedEventArgs e)
     {
+        // A chip is a typing shortcut: fill the name box and let the user confirm the scope + Save.
+        // (Previously chips silently committed an "all lines" rename, which was surprising.)
         if (sender is Button btn && btn.Tag is string name)
         {
-            // Chips always apply to all lines (they're quick-pick for a known person).
-            Result = new SpeakerRenameResult(name, RenameScope.All);
-            DialogResult = true;
-            Close();
+            NameInput.Text = name;
+            NameInput.Focus();
         }
     }
 
     private void Save_Click(object sender, RoutedEventArgs e)
     {
-        string name = NameBox.Text.Trim();
+        string name = (NameInput.Text ?? "").Trim();
         if (name.Length == 0) return;
         Result = new SpeakerRenameResult(name, SelectedScope);
         DialogResult = true;

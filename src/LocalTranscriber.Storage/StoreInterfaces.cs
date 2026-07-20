@@ -34,6 +34,10 @@ public interface ITranscriptEventStore
     /// <summary>Deletes all events belonging to a session.</summary>
     Task DeleteBySessionAsync(string sessionId, CancellationToken cancellationToken = default);
 
+    /// <summary>Deletes a single event by id. Used to remove one transcript line; deleting a
+    /// non-existent id is a harmless no-op. The event can be restored via <see cref="InsertAsync"/>.</summary>
+    Task DeleteAsync(string eventId, CancellationToken cancellationToken = default);
+
     /// <summary>Ids of sessions whose transcript text contains the query (case-insensitive LIKE).</summary>
     Task<IReadOnlyList<string>> SearchSessionIdsAsync(string text, CancellationToken cancellationToken = default);
 }
@@ -61,6 +65,9 @@ public interface ISpeakerAliasStore
     Task UpsertAsync(string sessionId, string sessionSpeakerId, string knownSpeakerId, CancellationToken cancellationToken = default);
     Task<string?> ResolveAsync(string sessionId, string sessionSpeakerId, CancellationToken cancellationToken = default);
     Task<IReadOnlyList<(string SessionSpeakerId, string KnownSpeakerId)>> ListForSessionAsync(string sessionId, CancellationToken cancellationToken = default);
+
+    /// <summary>Removes the alias for one session speaker, reverting its display name to the baked label. Used to undo naming an unknown speaker.</summary>
+    Task DeleteAsync(string sessionId, string sessionSpeakerId, CancellationToken cancellationToken = default);
 }
 
 public interface IEventSpeakerOverrideStore
@@ -68,4 +75,7 @@ public interface IEventSpeakerOverrideStore
     Task UpsertAsync(string sessionId, string eventId, string displayName, string? knownSpeakerId, CancellationToken cancellationToken = default);
     Task<string?> ResolveAsync(string sessionId, string eventId, CancellationToken cancellationToken = default);
     Task<IReadOnlyList<(string EventId, string DisplayName)>> ListForSessionAsync(string sessionId, CancellationToken cancellationToken = default);
+
+    /// <summary>Removes the per-event override, reverting the line to alias/known/baked resolution. Used to undo a "just this line" rename.</summary>
+    Task DeleteAsync(string sessionId, string eventId, CancellationToken cancellationToken = default);
 }

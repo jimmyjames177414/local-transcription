@@ -6,11 +6,31 @@
     <!-- One transcript turn (TranscriptRowViewModel). Shared by the live Meeting list,
          the Sessions detail preview, and review mode. -->
     <DataTemplate x:Key="TranscriptRowTemplate">
-        <Border x:Name="RowBd" CornerRadius="5" Padding="6,2" Margin="0,0,0,3">
+        <Border x:Name="RowBd" CornerRadius="5" Padding="6,2" Margin="0,0,0,3"
+                Tag="{Binding DataContext, RelativeSource={RelativeSource AncestorType=ListBox}}">
+            <Border.Style>
+                <Style TargetType="Border">
+                    <Style.Triggers>
+                        <!-- Right-click "Delete line" — only in editable lists (Meeting/review), not the read-only Sessions preview. -->
+                        <DataTrigger Binding="{Binding Tag, RelativeSource={RelativeSource AncestorType=ListBox}}" Value="editable">
+                            <Setter Property="ContextMenu">
+                                <Setter.Value>
+                                    <ContextMenu>
+                                        <MenuItem Header="Delete line"
+                                                  Command="{Binding PlacementTarget.Tag.Session.DeleteLineCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}}"
+                                                  CommandParameter="{Binding PlacementTarget.DataContext, RelativeSource={RelativeSource AncestorType=ContextMenu}}" />
+                                    </ContextMenu>
+                                </Setter.Value>
+                            </Setter>
+                        </DataTrigger>
+                    </Style.Triggers>
+                </Style>
+            </Border.Style>
             <Grid>
                 <Grid.ColumnDefinitions>
                     <ColumnDefinition Width="50" />
                     <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="Auto" />
                 </Grid.ColumnDefinitions>
                 <TextBlock Grid.Column="0" Text="{Binding Time}" FontFamily="{DynamicResource Font.Mono}"
                            FontSize="9.5" Foreground="{DynamicResource Brush.Text.Timestamp}" Margin="0,1,8,0" />
@@ -43,6 +63,29 @@
                     <Run Text="{Binding ConfidenceText, Mode=OneWay}" FontFamily="{DynamicResource Font.Mono}"
                          FontSize="9" Foreground="{DynamicResource Brush.Uncertain.Text}" />
                 </TextBlock>
+                <!-- Hover ✕ delete: shown only on row hover in editable (Meeting/review) lists. -->
+                <Button Grid.Column="2" Content="✕" FontSize="10" Padding="5,0" Margin="6,0,0,0"
+                        VerticalAlignment="Top" Cursor="Hand"
+                        Background="Transparent" BorderThickness="0"
+                        Foreground="{DynamicResource Brush.Text.Faint}"
+                        ToolTip="Delete this line"
+                        Command="{Binding DataContext.Session.DeleteLineCommand, RelativeSource={RelativeSource AncestorType=ListBox}}"
+                        CommandParameter="{Binding}">
+                    <Button.Style>
+                        <Style TargetType="Button">
+                            <Setter Property="Visibility" Value="Collapsed" />
+                            <Style.Triggers>
+                                <MultiDataTrigger>
+                                    <MultiDataTrigger.Conditions>
+                                        <Condition Binding="{Binding Tag, RelativeSource={RelativeSource AncestorType=ListBox}}" Value="editable" />
+                                        <Condition Binding="{Binding IsMouseOver, ElementName=RowBd}" Value="True" />
+                                    </MultiDataTrigger.Conditions>
+                                    <Setter Property="Visibility" Value="Visible" />
+                                </MultiDataTrigger>
+                            </Style.Triggers>
+                        </Style>
+                    </Button.Style>
+                </Button>
             </Grid>
         </Border>
         <DataTemplate.Triggers>

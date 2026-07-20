@@ -293,6 +293,26 @@ public sealed class FakeTranscriptionEngine : ITranscriptionEngine, IAsyncDispos
     public Task<bool> OverrideEventSpeakerAsync(string sessionId, string eventId, string newName, CancellationToken cancellationToken = default)
         => Task.FromResult(false);
 
+    public Task<bool> ClearEventSpeakerOverrideAsync(string sessionId, string eventId, CancellationToken cancellationToken = default)
+        => Task.FromResult(false);
+
+    public Task<bool> ClearSessionSpeakerAliasAsync(string sessionId, string sessionSpeakerId, CancellationToken cancellationToken = default)
+        => Task.FromResult(false);
+
+    public async Task<bool> DeleteEventAsync(string sessionId, string eventId, CancellationToken cancellationToken = default)
+    {
+        if (_eventStore is null || string.IsNullOrWhiteSpace(eventId)) return false;
+        await _eventStore.DeleteAsync(eventId, cancellationToken).ConfigureAwait(false);
+        return true;
+    }
+
+    public async Task<bool> RestoreEventAsync(TranscriptEvent transcriptEvent, CancellationToken cancellationToken = default)
+    {
+        if (_eventStore is null) return false;
+        await _eventStore.InsertAsync(transcriptEvent, cancellationToken).ConfigureAwait(false);
+        return true;
+    }
+
     public Task UpdateSessionTitleAsync(string sessionId, string? title, CancellationToken cancellationToken = default)
         => Task.CompletedTask;
 

@@ -9,11 +9,14 @@ public enum RenameScope
     ThisOne
 }
 
-/// <summary>Input to the rename dialog: who is being renamed and how many times they appear.</summary>
+/// <summary>Input to the rename dialog: who is being renamed, how many times they appear, and
+/// whether they are still an unidentified session speaker (drives the default scope: naming an
+/// unknown speaker defaults to "every line", correcting an already-named one to "just this line").</summary>
 public sealed record SpeakerRenameRequest(
     string CurrentName,
     IReadOnlyList<string> Suggestions,
-    int OccurrenceCount);
+    int OccurrenceCount,
+    bool IsCurrentlyUnknown);
 
 /// <summary>Output from the rename dialog: the new name and which lines to update.</summary>
 public sealed record SpeakerRenameResult(string NewName, RenameScope Scope);

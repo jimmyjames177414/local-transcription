@@ -74,8 +74,16 @@ public static class SpeakerCommands
         cmd.AddOption(toOpt);
         cmd.SetHandler(async (string from, string to) =>
         {
-            await new SqliteKnownSpeakerStore(Db(configService)).RenameAsync(from, to);
-            Console.WriteLine($"Renamed '{from}' to '{to}'.");
+            var store = new SqliteKnownSpeakerStore(Db(configService));
+            if (await store.GetByNameAsync(from) is null)
+            {
+                Console.WriteLine($"No known speaker named '{from}'.");
+                return;
+            }
+
+            Console.WriteLine(await store.RenameAsync(from, to)
+                ? $"Renamed '{from}' to '{to}'."
+                : $"A speaker named '{to}' already exists. Forget one first to merge them.");
         }, fromOpt, toOpt);
         return cmd;
     }
