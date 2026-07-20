@@ -18,6 +18,16 @@ internal sealed class SpeakerLabeler
     private readonly ISpeakerRecognitionService? _recognition;
     private readonly Action<string> _addWarning;
 
+    // Smoothing: the last resolved speaker, carried across windows so a segment that overlaps no
+    // diarized cluster (or a window whose clusters can't be embedded) inherits the current speaker
+    // instead of emitting a bare "Unknown"/"Speaker 1" that interrupts one person's turn. This is
+    // the most recent labeled segment, not the window's most prominent speaker — a simple, safe
+    // continuity heuristic. Mutated only on the single processor task; no synchronization needed.
+    private SpeakerLabel? _lastSpeaker;
+
+    /// <summary>Clears cross-window smoothing state. Call once per session.</summary>
+    public void Reset() => _lastSpeaker = null;
+
     public SpeakerLabeler(
         ISpeakerDiarizationService? diarization,
         ISpeakerEmbeddingService? embedding,
@@ -72,11 +82,13 @@ internal sealed class SpeakerLabeler
             }
         }
 
+        // Fallback for segments that overlap no diarized cluster. Prefer continuity (the last
+        // resolved speaker) over a bare "Unknown"/"Speaker 1" that would visibly break a turn.
         var defaultLabel = clusterLabels.Count switch
         {
-            0 => new SpeakerLabel("speaker_unknown", "Speaker 1", IsKnown: false),
             1 => clusterLabels.Values.First(),
-            _ => new SpeakerLabel("speaker_unknown", "Unknown", IsKnown: false)
+            0 => _lastSpeaker ?? new SpeakerLabel("speaker_unknown", "Speaker 1", IsKnown: false),
+            _ => _lastSpeaker ?? new SpeakerLabel("speaker_unknown", "Unknown", IsKnown: false)
         };
 
         var labeled = new List<(TranscribedSegment, SpeakerLabel)>(segments.Count);
@@ -84,6 +96,11 @@ internal sealed class SpeakerLabeler
         {
             var speaker = AssignSpeaker(segment, diarized, clusterLabels) ?? defaultLabel;
             labeled.Add((segment, speaker));
+            // Only carry forward a resolved identity, never the "speaker_unknown" placeholder.
+            if (speaker.SpeakerId != "speaker_unknown")
+            {
+                _lastSpeaker = speaker;
+            }
         }
 
         return labeled;

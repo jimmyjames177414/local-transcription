@@ -80,6 +80,7 @@ public static class EngineFactory
             FilterNonSpeech = config.FilterNonSpeech,
             SameSpeakerThreshold = config.SameSpeakerThreshold,
             NewSpeakerThreshold = config.NewSpeakerThreshold,
+            SpeakerMatchThreshold = config.SpeakerMatchThreshold,
             WhisperBeamSize = config.WhisperBeamSize,
             WhisperThreads = config.WhisperThreads,
             InitialPrompt = string.IsNullOrEmpty(config.InitialPrompt) ? null : config.InitialPrompt,

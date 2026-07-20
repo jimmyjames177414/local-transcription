@@ -26,6 +26,10 @@ public sealed record TranscriptionSessionOptions
     public double SameSpeakerThreshold { get; init; } = 0.50;
     public double NewSpeakerThreshold { get; init; } = 0.40;
 
+    /// <summary>Enrolled-speaker confidence below which the transcript renders "possibly Name".
+    /// Mirrors the recognition match threshold so the label and the recognition agree.</summary>
+    public double SpeakerMatchThreshold { get; init; } = 0.72;
+
     // Decoding tuning
     public int WhisperBeamSize { get; init; } = 5;
     public int WhisperThreads { get; init; } = 0;

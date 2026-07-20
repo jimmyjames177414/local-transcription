@@ -21,6 +21,9 @@ public sealed class AppConfig
     // Decoding tuning (A3)
     public int WhisperBeamSize { get; set; } = 5;
     public int WhisperThreads { get; set; } = 0;
+    // Optional whisper priming. Empty by default: this app spans many meeting types, and a global
+    // prompt gives only a marginal style nudge while risking prompt-echo hallucinations. Meaningful
+    // priming is meeting-specific vocabulary (names/acronyms) and belongs in a per-session override.
     public string InitialPrompt { get; set; } = "";
 
     // VAD pre-filter (A4)

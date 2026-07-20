@@ -136,10 +136,11 @@ public sealed class RealTranscriptionEngine : ITranscriptionEngine, IAsyncDispos
             _paused = false;
             _warnings.Clear();
             _lastEmittedText.Clear();
+            _speakerLabeler.Reset();
             _windowCounter = 0;
 
             _writer = new CompositeTranscriptWriter(
-                new PlainTextTranscriptWriter(options.OutputTextPath),
+                new PlainTextTranscriptWriter(options.OutputTextPath, options.SpeakerMatchThreshold),
                 new JsonlTranscriptWriter(options.OutputJsonlPath));
 
             _registry = new SessionSpeakerRegistry(options.SameSpeakerThreshold, options.NewSpeakerThreshold);
@@ -338,14 +339,26 @@ public sealed class RealTranscriptionEngine : ITranscriptionEngine, IAsyncDispos
             }
         }
 
-        // Overlap dedup: drop a segment identical to the last emitted text for THIS source.
-        // A back-to-back same-source repeat is still coalesced (the existing overlap-echo guard),
-        // but an identical line from the other source now survives.
-        if (_lastEmittedText.TryGetValue(source, out var last) &&
-            string.Equals(text, last, StringComparison.OrdinalIgnoreCase))
+        // Overlap dedup. Consecutive windows share OverlapMs of audio, so a new segment often
+        // repeats the tail of the previous one for THIS source. Drop a full repeat outright and
+        // trim a partial boundary echo off the front; an identical line from the OTHER source
+        // still survives (mic and system stay separate end to end).
+        if (_lastEmittedText.TryGetValue(source, out var last))
         {
-            return;
+            if (string.Equals(text, last, StringComparison.OrdinalIgnoreCase))
+            {
+                return;
+            }
+
+            text = TranscriptStitcher.TrimOverlap(last, text).Trim();
+            if (text.Length == 0)
+            {
+                return;
+            }
         }
+        // Store the emitted (post-trim) tail for this source. A fully suppressed window returns
+        // early above without updating it, which is correct: that window's audio tail overlaps the
+        // same speech that produced the stored tail, so the stored value still covers the echo.
         _lastEmittedText[source] = text;
 
         var e = new TranscriptEvent(
